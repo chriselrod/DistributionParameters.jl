@@ -243,10 +243,10 @@ end
 function load_parameter(first_pass, second_pass, out, ::Type{<: RealVector{M,T}}, partial = false) where {M,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
-    push!(first_pass, :($out = vload(RealVector{$M,$T}, $θ); $θ += $M))
+    push!(first_pass, :($out = DistributionParameters.SIMDPirates.vload(RealVector{$M,$T}, $θ); $θ += $M))
     if partial
         push!(second_pass, quote
-            @vectorize $T for i ∈ 1:$M
+            DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
                 $∂θ[i] = ($(Symbol("###adjoint###", out)))[i]
             end
             $∂θ += $M
@@ -266,7 +266,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
     rem = M & (W - 1)
 
     v = gensym(:v)
-    push!(first_pass, :($v = vload($V, $θ)))
+    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
     push!(first_pass, :($sumθᵢ = $v))
     push!(first_pass, :($v = SLEEF.exp_noinline($v)))
     out_tup = Expr(:tuple,)
@@ -275,8 +275,8 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
     end
     for n ∈ 1:n_unmasked_loads-1
         v = gensym(:v)
-        push!(first_pass, :($v = vload($V, $θ + $(n*W))))
-        push!(first_pass, :($sumθᵢ = vadd($sumθᵢ, $v)))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
+        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
         push!(first_pass, :($v = SLEEF.exp_noinline($v)))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
@@ -287,20 +287,20 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
     else
         L = M + W - rem
         v = gensym(:v)
-        push!(first_pass, :($v = vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
-        push!(first_pass, :($sumθᵢ = vadd($sumθᵢ, $v)))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
+        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
         push!(first_pass, :($v = SLEEF.exp_noinline($v)))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
         end
     end
-    push!(first_pass, :(target += vsum($sumθᵢ)))
+    push!(first_pass, :(target += DistributionParameters.SIMDPirates.vsum($sumθᵢ)))
     push!(first_pass, :($θ += $M))
     push!(first_pass, :($out = @inbounds PositiveVector{$M}($out_tup)))
 
     if partial
         push!(second_pass, quote
-            @vectorize $T for i ∈ 1:$M
+            DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
                 $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###adjoint###", out)))[i]
             end
             $∂θ += $M
@@ -320,19 +320,19 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
 
     v = gensym(:v)
     vlb = gensym(:LB)
-    push!(first_pass, :($vlb = vbroadcast($V, $(T(LB)))))
-    push!(first_pass, :($v = vload($V, $θ)))
+    push!(first_pass, :($vlb = DistributionParameters.SIMDPirates.vbroadcast($V, $(T(LB)))))
+    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
     push!(first_pass, :($sumθᵢ = $v))
-    push!(first_pass, :($v = vadd($vlb, SLEEF.exp_noinline($v))))
+    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEF.exp_noinline($v))))
     out_tup = Expr(:tuple,)
     for w ∈ 1:W
         push!(out_tup.args, :($v[$w].value))
     end
     for n ∈ 1:n_unmasked_loads-1
         v = gensym(:v)
-        push!(first_pass, :($v = vload($V, $θ + $(n*W))))
-        push!(first_pass, :($sumθᵢ = vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = vadd($vlb, SLEEF.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
+        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEF.exp_noinline($v))))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
         end
@@ -342,19 +342,19 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
     else
         L = M + W - rem
         v = gensym(:v)
-        push!(first_pass, :($v = vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
-        push!(first_pass, :($sumθᵢ = vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = vadd($vlb, SLEEF.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
+        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEF.exp_noinline($v))))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
         end
     end
-    push!(first_pass, :(target += vsum($sumθᵢ)))
+    push!(first_pass, :(target += DistributionParameters.SIMDPirates.vsum($sumθᵢ)))
     push!(first_pass, :($out = @inbounds LowerBoundVector{$M,$LB}($out_tup)))
 
     if partial
         push!(second_pass, quote
-            @vectorize $T for i ∈ 1:$M
+            DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
                 $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###adjoint###", out)))[i]
             end
             $∂θ += $M
@@ -374,19 +374,19 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
 
     v = gensym(:v)
     vlb = gensym(:LB)
-    push!(first_pass, :($vub = vbroadcast($V, $(T(UB)))))
-    push!(first_pass, :($v = vload($V, $θ)))
+    push!(first_pass, :($vub = DistributionParameters.SIMDPirates.vbroadcast($V, $(T(UB)))))
+    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
     push!(first_pass, :($sumθᵢ = $v))
-    push!(first_pass, :($v = vsub($vub, SLEEF.exp_noinline($v))))
+    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEF.exp_noinline($v))))
     out_tup = Expr(:tuple,)
     for w ∈ 1:W
         push!(out_tup.args, :($v[$w].value))
     end
     for n ∈ 1:n_unmasked_loads-1
         v = gensym(:v)
-        push!(first_pass, :($v = vload($V, $θ + $(n*W))))
-        push!(first_pass, :($sumθᵢ = vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = vsub($vub, SLEEF.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
+        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEF.exp_noinline($v))))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
         end
@@ -396,19 +396,19 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
     else
         L = M + W - rem
         v = gensym(:v)
-        push!(first_pass, :($v = vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
-        push!(first_pass, :($sumθᵢ = vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = vsub($vub, SLEEF.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
+        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEF.exp_noinline($v))))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
         end
     end
-    push!(first_pass, :(target += vsum($sumθᵢ)))
+    push!(first_pass, :(target += DistributionParameters.SIMDPirates.vsum($sumθᵢ)))
     push!(first_pass, :($out = @inbounds UpperBoundVector{$M,$UB}($out_tup)))
 
     if partial
         push!(second_pass, quote
-            @vectorize $T for i ∈ 1:$M
+            DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
                 $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###adjoint###", out)))[i]
             end
             $∂θ += $M
@@ -436,7 +436,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
     log_jac = gensym(:log_jac)
     q = quote
         $mv = MutableFixedSizePaddedVector{$M,$T}(undef)
-        $log_jac = vbroadcast(Vec{$W,$T}, zero($T))
+        $log_jac = DistributionParameters.SIMDPirates.vbroadcast(Vec{$W,$T}, zero($T))
     end
     if partial
         push!(q.args, :($invlogitout = MutableFixedSizePaddedVector{$M,$T}(undef)))
@@ -458,17 +458,17 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
     end
 
     push!(q.args, quote
-        @vectorize $T for i ∈ 1:$L
+        DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$L
             $loop_body
         end
         $out = BoundedVector{$M,$LB,$UB}($mv)
         $θ += $M
-        target += vsum($log_jac)
+        target += DistributionParameters.SIMDPirates.vsum($log_jac)
     end)
     push!(first_pass, q)
     if partial
         push!(second_pass, quote
-            @vectorize $T for i ∈ 1:$M
+            DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
                 $∂θ[i] = one($T) - 2($invlogitout)[i] + ($∂invlogitout)[i] * $(T(UB - LB)) * ($(Symbol("###adjoint###", out)))[i]
             end
             $∂θ += $M
@@ -494,7 +494,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
     log_jac = gensym(:log_jac)
     q = quote
         $mv = MutableFixedSizePaddedVector{$M,$T}(undef)
-        $log_jac = vbroadcast(Vec{$W,$T}, zero($T))
+        $log_jac = DistributionParameters.SIMDPirates.vbroadcast(Vec{$W,$T}, zero($T))
     end
     if partial
         push!(q.args, :($invlogitout = MutableFixedSizePaddedVector{$M,$T}(undef)))
@@ -516,17 +516,17 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
     end
 
     push!(q.args, quote
-        @vectorize $T for i ∈ 1:$L
+        DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$L
             $loop_body
         end
         $out = UnitVector{$M}($mv)
         $θ += $M
-        target += vsum($log_jac)
+        target += DistributionParameters.SIMDPirates.vsum($log_jac)
     end)
     push!(first_pass, q)
     if partial
         push!(second_pass, quote
-            @vectorize $T for i ∈ 1:$M
+            DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
                 $∂θ[i] = one($T) - 2($invlogitout)[i] + ($∂invlogitout)[i] * ($(Symbol("###adjoint###", out)))[i]
             end
             $∂θ += $M
@@ -652,11 +652,11 @@ end
 function load_parameter(first_pass, second_pass, out, ::Type{<: RealMatrix{M,N,T}}, partial = false) where {M,N,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
-    push!(first_pass, :($out = vload(RealMatrix{M,N,T}, $θ); $θ += $(M*N)))
+    push!(first_pass, :($out = DistributionParameters.SIMDPirates.vload(RealMatrix{M,N,T}, $θ); $θ += $(M*N)))
     if partial
         push!(second_pass, quote
             for n ∈ 0:$(N-1)
-                @vectorize $T for i ∈ 1:$M
+                DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
                     $∂θ[i+$M*n] = ($(Symbol("###adjoint###", out)))[i+$M*n]
                 end
             end
