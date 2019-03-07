@@ -32,7 +32,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:RealFloat}, parti
     ∂θ = Symbol("##∂θparameter##")
     push!(first_pass, :($out = unsafe_load($θ); $θ += 1))
     if partial
-        push!(second_pass, :(unsafe_store!($∂θ, $(Symbol("###adjoint###", out)))))
+        push!(second_pass, :(unsafe_store!($∂θ, $(Symbol("###seed###", out)))))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -48,7 +48,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:PositiveFloat}, p
         target += $θᵢ
     end)
     if partial
-        push!(second_pass, :(unsafe_store!($∂θ, one($T) + $out * $(Symbol("###adjoint###", out)))))
+        push!(second_pass, :(unsafe_store!($∂θ, one($T) + $out * $(Symbol("###seed###", out)))))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -66,7 +66,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:LowerBoundedFloat
         target += $θᵢ
     end)
     if partial
-        push!(second_pass, :(unsafe_store!($∂θ, one($T) + $expθᵢ * $(Symbol("###adjoint###", out)))))
+        push!(second_pass, :(unsafe_store!($∂θ, one($T) + $expθᵢ * $(Symbol("###seed###", out)))))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -84,7 +84,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:UpperBoundedFloat
         target += $θᵢ
     end)
     if partial
-        push!(second_pass, :(unsafe_store!($∂θ, one($T) - $expθᵢ * $(Symbol("###adjoint###", out)))))
+        push!(second_pass, :(unsafe_store!($∂θ, one($T) - $expθᵢ * $(Symbol("###seed###", out)))))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -104,7 +104,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:BoundedFloat{LB,U
         target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
     end)
     if partial
-        push!(second_pass, :(unsafe_store!($∂θ, one($T) - 2$invlogitout + $∂invlogitout * $(T(UB - LB)) * $(Symbol("###adjoint###", out)))))
+        push!(second_pass, :(unsafe_store!($∂θ, one($T) - 2$invlogitout + $∂invlogitout * $(T(UB - LB)) * $(Symbol("###seed###", out)))))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -122,7 +122,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:UnitFloat}, parti
         target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
     end)
     if partial
-        push!(second_pass, :(unsafe_store!($∂θ, one($T) - 2$out + $∂invlogitout * $(Symbol("###adjoint###", out)))))
+        push!(second_pass, :(unsafe_store!($∂θ, one($T) - 2$out + $∂invlogitout * $(Symbol("###seed###", out)))))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -247,7 +247,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: RealVector{M,T}}
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = ($(Symbol("###adjoint###", out)))[i]
+                $∂θ[i] = ($(Symbol("###seed###", out)))[i]
             end
             $∂θ += $M
         end)
@@ -301,7 +301,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###adjoint###", out)))[i]
+                $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###seed###", out)))[i]
             end
             $∂θ += $M
         end)
@@ -355,7 +355,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###adjoint###", out)))[i]
+                $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###seed###", out)))[i]
             end
             $∂θ += $M
         end)
@@ -409,7 +409,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###adjoint###", out)))[i]
+                $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###seed###", out)))[i]
             end
             $∂θ += $M
         end)
@@ -469,7 +469,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($∂invlogitout)[i] * $(T(UB - LB)) * ($(Symbol("###adjoint###", out)))[i]
+                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($∂invlogitout)[i] * $(T(UB - LB)) * ($(Symbol("###seed###", out)))[i]
             end
             $∂θ += $M
         end)
@@ -527,7 +527,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($∂invlogitout)[i] * ($(Symbol("###adjoint###", out)))[i]
+                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($∂invlogitout)[i] * ($(Symbol("###seed###", out)))[i]
             end
             $∂θ += $M
         end)
@@ -657,7 +657,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: RealMatrix{M,N,T
         push!(second_pass, quote
             for n ∈ 0:$(N-1)
                 DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                    $∂θ[i+$M*n] = ($(Symbol("###adjoint###", out)))[i+$M*n]
+                    $∂θ[i+$M*n] = ($(Symbol("###seed###", out)))[i+$M*n]
                 end
             end
             $∂θ += $(M*N)
