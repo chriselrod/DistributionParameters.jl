@@ -268,7 +268,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
     v = gensym(:v)
     push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
     push!(first_pass, :($sumθᵢ = $v))
-    push!(first_pass, :($v = SLEEF.exp_noinline($v)))
+    push!(first_pass, :($v = SLEEFPirates.exp_noinline($v)))
     out_tup = Expr(:tuple,)
     for w ∈ 1:W
         push!(out_tup.args, :($v[$w].value))
@@ -277,7 +277,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = SLEEF.exp_noinline($v)))
+        push!(first_pass, :($v = SLEEFPirates.exp_noinline($v)))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
         end
@@ -289,7 +289,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = SLEEF.exp_noinline($v)))
+        push!(first_pass, :($v = SLEEFPirates.exp_noinline($v)))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
         end
@@ -323,7 +323,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
     push!(first_pass, :($vlb = DistributionParameters.SIMDPirates.vbroadcast($V, $(T(LB)))))
     push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
     push!(first_pass, :($sumθᵢ = $v))
-    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEF.exp_noinline($v))))
+    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp_noinline($v))))
     out_tup = Expr(:tuple,)
     for w ∈ 1:W
         push!(out_tup.args, :($v[$w].value))
@@ -332,7 +332,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEF.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp_noinline($v))))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
         end
@@ -344,7 +344,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEF.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp_noinline($v))))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
         end
@@ -370,14 +370,16 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
     V = Vec{W,T}
     sumθᵢ = gensym(:sumθᵢ)
     n_unmasked_loads = M >> Wshift
-    rem = M & (W - 1)
+    Wm1 = W - 1
+    rem = M & Wm1
+    L = (M + Wm1) & ~Wm1
 
     v = gensym(:v)
     vlb = gensym(:LB)
     push!(first_pass, :($vub = DistributionParameters.SIMDPirates.vbroadcast($V, $(T(UB)))))
     push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
     push!(first_pass, :($sumθᵢ = $v))
-    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEF.exp_noinline($v))))
+    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp_noinline($v))))
     out_tup = Expr(:tuple,)
     for w ∈ 1:W
         push!(out_tup.args, :($v[$w].value))
@@ -386,19 +388,16 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEF.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp_noinline($v))))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
         end
     end
-    if rem == 0
-        L = M
-    else
-        L = M + W - rem
+    if rem != 0
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEF.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp_noinline($v))))
         for w ∈ 1:W
             push!(out_tup.args, :($v[$w].value))
         end
@@ -427,12 +426,9 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
 
     W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
     sumθᵢ = gensym(:sumθᵢ)
-    rem = M & (W - 1)
-    if rem == 0
-        L = M
-    else
-        L = M + W - rem
-    end
+    Wm1 = W - 1
+    rem = M & Wm1
+    L = (M + Wm1) & ~Wm1
     log_jac = gensym(:log_jac)
     q = quote
         $mv = MutableFixedSizePaddedVector{$M,$T}(undef)
@@ -443,18 +439,18 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
         push!(q.args, :($∂invlogitout = MutableFixedSizePaddedVector{$M,$T}(undef)))
     end
     loop_body = quote
-        $ninvlogitout = one($T) / (one($T) + SLEEF.exp($θ[i]))
+        $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($θ[i]))
     end
     if partial
         push!(loop_body.args, :($invlogitout[i] = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout[i] = $ninvlogitout * $invlogitout[i]))
         push!(loop_body.args, :($mv[i] = $LB + $(UB-LB) * $invlogitout[i]))
-        push!(loop_body.args, :($log_jac += SLEEF.log($∂invlogitout[i])))
+        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout[i])))
     else
         push!(loop_body.args, :($invlogitout = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout = $ninvlogitout * $invlogitout))
         push!(loop_body.args, :($mv[i] = $LB + $(UB-LB) * $invlogitout))
-        push!(loop_body.args, :($log_jac += SLEEF.log($∂invlogitout)))
+        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout)))
     end
 
     push!(q.args, quote
@@ -485,12 +481,9 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
 
     W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
     sumθᵢ = gensym(:sumθᵢ)
-    rem = M & (W - 1)
-    if rem == 0
-        L = M
-    else
-        L = M + W - rem
-    end
+    Wm1 = W - 1
+    rem = M & Wm1
+    L = (M + Wm1) & ~Wm1
     log_jac = gensym(:log_jac)
     q = quote
         $mv = MutableFixedSizePaddedVector{$M,$T}(undef)
@@ -501,18 +494,18 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
         push!(q.args, :($∂invlogitout = MutableFixedSizePaddedVector{$M,$T}(undef)))
     end
     loop_body = quote
-        $ninvlogitout = one($T) / (one($T) + SLEEF.exp($θ[i]))
+        $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($θ[i]))
     end
     if partial
         push!(loop_body.args, :($invlogitout[i] = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout[i] = $ninvlogitout * $invlogitout[i]))
         push!(loop_body.args, :($mv[i] = $invlogitout[i]))
-        push!(loop_body.args, :($log_jac += SLEEF.log($∂invlogitout[i])))
+        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout[i])))
     else
         push!(loop_body.args, :($invlogitout = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout = $ninvlogitout * $invlogitout))
         push!(loop_body.args, :($mv[i] = $invlogitout))
-        push!(loop_body.args, :($log_jac += SLEEF.log($∂invlogitout)))
+        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout)))
     end
 
     push!(q.args, quote

@@ -1,6 +1,6 @@
 module DistributionParameters
 
-using PaddedMatrices, SIMDPirates, SLEEF, LoopVectorization
+using PaddedMatrices, SIMDPirates, SLEEFPirates, LoopVectorization
 
 export RealFloat, PositiveFloat, LowerBoundedFloat, UpperBoundedFloat, BoundedFloat, UnitFloat,
     RealVector, PositiveVector, LowerBoundVector, UpperBoundVector, BoundedVector, UnitVector,
