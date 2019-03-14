@@ -60,7 +60,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LKJ_Correlation_
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$N
-                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($∂invlogitout)[i] * ($(Symbol("###seed###", out)))[i]
+                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($(Symbol("###seed###", out)))[i] * ($∂invlogitout)[i]
             end
             $∂θ += $N
         end)

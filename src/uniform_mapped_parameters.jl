@@ -48,7 +48,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:PositiveFloat}, p
         target += $θᵢ
     end)
     if partial
-        push!(second_pass, :(unsafe_store!($∂θ, one($T) + $out * $(Symbol("###seed###", out)))))
+        push!(second_pass, :(unsafe_store!($∂θ, one($T) + $(Symbol("###seed###", out)) * $out)))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -66,7 +66,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:LowerBoundedFloat
         target += $θᵢ
     end)
     if partial
-        push!(second_pass, :(unsafe_store!($∂θ, one($T) + $expθᵢ * $(Symbol("###seed###", out)))))
+        push!(second_pass, :(unsafe_store!($∂θ, one($T) + $(Symbol("###seed###", out)) * $expθᵢ)))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -84,7 +84,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:UpperBoundedFloat
         target += $θᵢ
     end)
     if partial
-        push!(second_pass, :(unsafe_store!($∂θ, one($T) - $expθᵢ * $(Symbol("###seed###", out)))))
+        push!(second_pass, :(unsafe_store!($∂θ, one($T) - $(Symbol("###seed###", out)) * $expθᵢ)))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -104,7 +104,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:BoundedFloat{LB,U
         target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
     end)
     if partial
-        push!(second_pass, :(unsafe_store!($∂θ, one($T) - 2$invlogitout + $∂invlogitout * $(T(UB - LB)) * $(Symbol("###seed###", out)))))
+        push!(second_pass, :(unsafe_store!($∂θ, one($T) - 2$invlogitout + $(Symbol("###seed###", out)) * $∂invlogitout * $(T(UB - LB)))))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -122,7 +122,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:UnitFloat}, parti
         target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
     end)
     if partial
-        push!(second_pass, :(unsafe_store!($∂θ, one($T) - 2$out + $∂invlogitout * $(Symbol("###seed###", out)))))
+        push!(second_pass, :(unsafe_store!($∂θ, one($T) - 2$out + $(Symbol("###seed###", out)) * $∂invlogitout)))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -301,7 +301,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###seed###", out)))[i]
+                $∂θ[i] = one($T) + ($(Symbol("###seed###", out)))[i] * ($out)[i]
             end
             $∂θ += $M
         end)
@@ -355,7 +355,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###seed###", out)))[i]
+                $∂θ[i] = one($T) + ($(Symbol("###seed###", out)))[i] * ($out)[i]
             end
             $∂θ += $M
         end)
@@ -408,7 +408,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) + ($out)[i] * ($(Symbol("###seed###", out)))[i]
+                $∂θ[i] = one($T) + ($(Symbol("###seed###", out)))[i] * ($out)[i]
             end
             $∂θ += $M
         end)
@@ -465,7 +465,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($∂invlogitout)[i] * $(T(UB - LB)) * ($(Symbol("###seed###", out)))[i]
+                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($(Symbol("###seed###", out)))[i] * ($∂invlogitout)[i] * $(T(UB - LB))
             end
             $∂θ += $M
         end)
@@ -520,7 +520,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($∂invlogitout)[i] * ($(Symbol("###seed###", out)))[i]
+                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($(Symbol("###seed###", out)))[i] * ($∂invlogitout)[i]
             end
             $∂θ += $M
         end)
