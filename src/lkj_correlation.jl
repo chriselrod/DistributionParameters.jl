@@ -1,5 +1,5 @@
 
-struct LKJ_Correlation_Cholesky{M,T,L} <: AbstractMatrix{T}
+struct LKJ_Correlation_Cholesky{M,T,L} <: StructuredMatrices.AbstractLowerTriangularMatrix{M,T,L}
     data::NTuple{T,L}
     # inverse::NTuple{T,L}
 end
@@ -407,4 +407,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LKJ_Correlation_
     push!(first_pass, q)
 
     nothing
+end
+function load_parameter(first_pass, second_pass, out, ::Type{<: LKJ_Correlation_Cholesky{M}}, partial = false) where {M}
+    load_parameter(first_pass, second_pass, out, LKJ_Correlation_Cholesky{M,Float64}, partial)
 end
