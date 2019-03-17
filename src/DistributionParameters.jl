@@ -7,6 +7,7 @@ export RealFloat, PositiveFloat, LowerBoundedFloat, UpperBoundedFloat, BoundedFl
     RealMatrix, PositiveMatrix, LowerBoundMatrix, UpperBoundMatrix, BoundedMatrix, UnitMatrix
 
 include("uniform_mapped_parameters.jl")
-# include("lkj_correlation.jl")
+include("lkj_correlation.jl")
+# include("autoregressive_matrix.jl")
 
 end # module
