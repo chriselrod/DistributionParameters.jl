@@ -7,6 +7,11 @@ export RealFloat, PositiveFloat, LowerBoundedFloat, UpperBoundedFloat, BoundedFl
     RealVector, PositiveVector, LowerBoundVector, UpperBoundVector, BoundedVector, UnitVector,
     RealMatrix, PositiveMatrix, LowerBoundMatrix, UpperBoundMatrix, BoundedMatrix, UnitMatrix
 
+"""
+Transform a parameter vector to the constrained space.
+"""
+function constrain end
+
 include("uniform_mapped_parameters.jl")
 include("lkj_correlation.jl")
 # include("autoregressive_matrix.jl")
