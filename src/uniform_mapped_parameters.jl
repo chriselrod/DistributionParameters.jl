@@ -29,8 +29,11 @@ const ScalarParameter{T} = Union{
     UnitFloat{T}
 }
 
-
-function load_parameter(first_pass, second_pass, out, ::Type{<:RealFloat}, partial = false)
+function load_parameter(first_pass, second_pass, out, ::Type{V}, partial = false) where {M, V <: ScalarParameter}
+    ## If element type of the vector is unspecified, we fill in Float64 here.
+    load_parameter(first_pass, second_pass, out, V{Float64}, partial)
+end
+function load_parameter(first_pass, second_pass, out, ::Type{RealFloat{T}}, partial = false) where {T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     push!(first_pass, :($out = ProbabilityModels.VectorizationBase.load($θ); $θ += 1))
@@ -40,7 +43,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:RealFloat}, parti
     end
     nothing
 end
-function load_parameter(first_pass, second_pass, out, ::Type{<:PositiveFloat}, partial = false) where {T}
+function load_parameter(first_pass, second_pass, out, ::Type{PositiveFloat{T}}, partial = false) where {T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     θᵢ = gensym(:θ)
@@ -56,7 +59,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:PositiveFloat}, p
     end
     nothing
 end
-function load_parameter(first_pass, second_pass, out, ::Type{<:LowerBoundedFloat{LB}}, partial = false) where {LB,T}
+function load_parameter(first_pass, second_pass, out, ::Type{LowerBoundedFloat{LB,T}}, partial = false) where {LB,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     θᵢ = gensym(:θ)
@@ -74,7 +77,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:LowerBoundedFloat
     end
     nothing
 end
-function load_parameter(first_pass, second_pass, out, ::Type{<:UpperBoundedFloat{UB}}, partial = false) where {UB,T}
+function load_parameter(first_pass, second_pass, out, ::Type{UpperBoundedFloat{UB,T}}, partial = false) where {UB,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     θᵢ = gensym(:θ)
@@ -92,7 +95,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:UpperBoundedFloat
     end
     nothing
 end
-function load_parameter(first_pass, second_pass, out, ::Type{<:BoundedFloat{LB,UB}}, partial = false) where {LB,UB,T}
+function load_parameter(first_pass, second_pass, out, ::Type{BoundedFloat{LB,UB,T}}, partial = false) where {LB,UB,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     ninvlogitout = gensym(out)
@@ -112,7 +115,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<:BoundedFloat{LB,U
     end
     nothing
 end
-function load_parameter(first_pass, second_pass, out, ::Type{<:UnitFloat}, partial = false) where {T}
+function load_parameter(first_pass, second_pass, out, ::Type{UnitFloat{T}}, partial = false) where {T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     ninvlogitout = gensym(out)
@@ -257,6 +260,9 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: RealVector{M,T}}
     end
     nothing
 end
+function load_parameter(first_pass, second_pass, out, ::Type{<: RealVector{M}}, partial = false) where {M}
+    load_parameter(first_pass, second_pass, out, RealVector{M,Float64}, partial)
+end
 
 function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M,T}}, partial = false) where {M,T}
     θ = Symbol("##θparameter##")
@@ -271,7 +277,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
     v = gensym(:v)
     push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
     push!(first_pass, :($sumθᵢ = $v))
-    push!(first_pass, :($v = SLEEFPirates.exp_noinline($v)))
+    push!(first_pass, :($v = SLEEFPirates.exp($v)))
     outtup = Expr(:tuple,)
     for w ∈ 1:W
         push!(outtup.args, :($v[$w].value))
@@ -280,7 +286,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = SLEEFPirates.exp_noinline($v)))
+        push!(first_pass, :($v = SLEEFPirates.exp($v)))
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
         end
@@ -292,7 +298,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = SLEEFPirates.exp_noinline($v)))
+        push!(first_pass, :($v = SLEEFPirates.exp_ine($v)))
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
         end
@@ -311,6 +317,9 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
     end
     nothing
 end
+function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M}}, partial = false) where {M}
+    load_parameter(first_pass, second_pass, out, PositiveVector{M,Float64}, partial)
+end
 function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector{M,LB,T}}, partial = false) where {M,LB,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -326,7 +335,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
     push!(first_pass, :($vlb = DistributionParameters.SIMDPirates.vbroadcast($V, $(T(LB)))))
     push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
     push!(first_pass, :($sumθᵢ = $v))
-    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp_noinline($v))))
+    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp($v))))
     outtup = Expr(:tuple,)
     for w ∈ 1:W
         push!(outtup.args, :($v[$w].value))
@@ -335,7 +344,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp($v))))
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
         end
@@ -347,7 +356,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp($v))))
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
         end
@@ -364,6 +373,9 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
         end)
     end
     nothing
+end
+function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector{M,LB}}, partial = false) where {M,LB}
+    load_parameter(first_pass, second_pass, out, LowerBoundVector{M,LB,Float64}, partial)
 end
 function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector{M,UB,T}}, partial = false) where {M,UB,T}
     θ = Symbol("##θparameter##")
@@ -382,7 +394,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
     push!(first_pass, :($vub = DistributionParameters.SIMDPirates.vbroadcast($V, $(T(UB)))))
     push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
     push!(first_pass, :($sumθᵢ = $v))
-    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp_noinline($v))))
+    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp($v))))
     outtup = Expr(:tuple,)
     for w ∈ 1:W
         push!(outtup.args, :($v[$w].value))
@@ -391,7 +403,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp($v))))
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
         end
@@ -400,7 +412,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp_noinline($v))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp($v))))
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
         end
