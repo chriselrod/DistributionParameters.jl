@@ -16,9 +16,12 @@ struct LKJCholeskyConstraintAdjoint{P,T,L} <: AbstractArray{T,4}
 end
 Base.size(::LKJCholeskyConstraintAdjoint{P}) where {P} = (P,P,P-1,P-1)
 
-@inline function Base.getindex(adj::LKJCholeskyConstraintAdjoint{P,T,L}, i) where {P,T,L}
+@inline function Base.getindex(adj::LKJCholeskyConstraintAdjoint{P,T,L}, i::Integer) where {P,T,L}
     @boundscheck i > L && PaddedMatrices.ThrowBoundsError("i = $i > $L.")
     @inbounds adj.data[i]
+end
+@inline function Base.getindex(adj::LKJCholeskyConstraintAdjoint{P,T,L}, i::CartesianIndex{4}) where {P,T,L}
+    adj[i[1],i[2],i[3],i[4]]
 end
 function Base.getindex(adj::LKJCholeskyConstraintAdjoint{Mp1,T,L}, i, j, k, l) where {Mp1,T,L}
     # Welcome to Branchapalooza!!!
@@ -63,11 +66,7 @@ function Base.getindex(adj::LKJCholeskyConstraintAdjoint{Mp1,T,L}, i, j, k, l) w
     zero(T)
 end
 
-@generated function Base.:*(
-        t::LinearAlgebra.Adjoint{T,PaddedMatrices.AbstractFixedSizePaddedVector{BP,T,BPL,BPL}},
-        adj::LKJCholeskyConstraintAdjoint{Mp1,T,L}
-    ) where {Mp1,T,L,BP,BPL}
-
+function LKJ_adjoint_mul_quote(Mp1,T)
     M = Mp1 - 1
     q = quote end
     StructuredMatrices.load_packed_L_quote!(q.args, Mp1, :∂target_∂L, :t)
@@ -123,6 +122,20 @@ end
             ConstantFixedSizePaddedArray{Tuple{$lkj_l}, $T, 1, $lkj_l_full, $lkj_l_full}($outtup)'
         end
     end
+end
+
+@generated function Base.:*(
+        t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizePaddedVector{BP,T,BPL,BPL}},
+        adj::LKJCholeskyConstraintAdjoint{Mp1,T,L}
+    ) where {Mp1,T,L,BP,BPL}
+    LKJ_adjoint_mul_quote(Mp1,T)
+end
+
+@generated function Base.:*(
+        t::StructuredMatrices.AbstractLowerTriangularMatrix{Mp1,T},
+        adj::LKJCholeskyConstraintAdjoint{Mp1,T,L}
+    ) where {Mp1,T,L}
+    LKJ_adjoint_mul_quote(Mp1,T)
 end
 
 
@@ -334,11 +347,25 @@ function constrain_lkj_factor_jac_quote(L, T, zsym)
         @fastmath @inbounds begin
             $q
         end
-    end, :(LKJ_Correlation_Cholesky{$Mp1,$T,$(StructuredMatrices.binomial2(Mp1+1))}($output)), logdetsym, :(ConstantFixedSizePaddedVector{$L}($∂logdet)), :(LKJCholeskyConstraintAdjoint{$Mp1,$T,$Ladj}($jacobian_tuple))
+    end, :(DistributionParameters.LKJ_Correlation_Cholesky{$Mp1,$T,$(StructuredMatrices.binomial2(Mp1+1))}($output)), logdetsym, :(DistributionParameters.ConstantFixedSizePaddedVector{$L}($∂logdet)), :(DistributionParameters.LKJCholeskyConstraintAdjoint{$Mp1,$T,$Ladj}($jacobian_tuple))
 end
 
-
-
+@generated function lkj_constrain(zlkj::PaddedMatrices.AbstractFixedSizePaddedVector{L,T}) where {L,T}
+    # L = StructuredMatrices.binomial2(M)
+    lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(L, T, :zlkj)
+    quote
+        $lkjconstrain_q
+        $lkjconstrained_expr, $lkjlogdetsym
+    end
+end
+@generated function ∂lkj_constrain(zlkj::PaddedMatrices.AbstractFixedSizePaddedVector{L,T}) where {L,T}
+    # L = StructuredMatrices.binomial2(M)
+    lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym, lkjlogdetgrad, lkjjacobian = constrain_lkj_factor_jac_quote(L, T, :zlkj)
+    quote
+        $lkjconstrain_q
+        $lkjconstrained_expr, $lkjlogdetsym, $lkjlogdetgrad, $lkjjacobian
+    end
+end
 # function load_parameter(first_pass, second_pass, out, ::Type{<: LKJ_Correlation_Cholesky{M}}, partial = false) where {M}
 #     load_parameter(first_pass, second_pass, out, LKJ_Correlation_Cholesky{M,Float64}, partial)
 # end
@@ -358,7 +385,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LKJ_Correlation_
     Wm1 = W - 1
     rem = N & Wm1
     L = (N + Wm1) & ~Wm1
-
+    # @show N, L
     log_jac = gensym(:log_jac)
     zsym = gensym(:z) # z ∈ (-1, 1)
     q = quote
@@ -367,51 +394,76 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LKJ_Correlation_
         $log_jac = zero($T)
     end
     if partial
-        push!(q.args, :($invlogitout = MutableFixedSizePaddedVector{$M,$T}(undef)))
-        push!(q.args, :($∂invlogitout = MutableFixedSizePaddedVector{$M,$T}(undef)))
+        push!(q.args, :($invlogitout = MutableFixedSizePaddedVector{$L,$T}(undef)))
+        push!(q.args, :($∂invlogitout = MutableFixedSizePaddedVector{$L,$T}(undef)))
     end
+    i = gensym(:i)
     loop_body = quote
-        $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($θ[i]))
+        $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($θ[$i]))
     end
     if partial
-        push!(loop_body.args, :($invlogitout[i] = one($T) - $ninvlogitout))
-        push!(loop_body.args, :($∂invlogitout[i] = $ninvlogitout * $invlogitout[i]))
-        push!(loop_body.args, :($zsym[i] = SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
-        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout[i])))
+        push!(loop_body.args, :($invlogitout[$i] = one($T) - $ninvlogitout))
+        push!(loop_body.args, :($∂invlogitout[$i] = $ninvlogitout * $invlogitout[$i]))
+        push!(loop_body.args, :($zsym[$i] = SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
+        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout[$i])))
     else
         push!(loop_body.args, :($invlogitout = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout = $ninvlogitout * $invlogitout))
-        push!(loop_body.args, :($zsym[i] = SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
+        push!(loop_body.args, :($zsym[$i] = SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
         push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout)))
     end
 
     push!(q.args, quote
-        ProbabilityModels.DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$L
+        ProbabilityModels.DistributionParameters.LoopVectorization.@vectorize $T for $i ∈ 1:$L
             $loop_body
         end
     end)
+    lkjlogdetsym = gensym(:lkjlogdetsym)
     if partial
-        lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym, lkjlogdetgrad, lkjjacobian = constrain_lkj_factor_jac_quote(N, T, zsym)
+        # lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym, lkjlogdetgrad, lkjjacobian = constrain_lkj_factor_jac_quote(N, T, zsym)
         seedlkj = gensym(:seedlkj)
+        lkjlogdetgradsym = gensym(:lkjlogdetgrad)
+        lkjjacobiansym = gensym(:lkjjacobian)
         push!(second_pass, quote
-            $seedlkj = $lkjlogdetgrad + ($(Symbol("###seed###", out)) * $lkjjacobian).parent # .patent to take off the transpose
-            ProbabilityModels.DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$N
-                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($seedlkj)[i] * ($∂invlogitout)[i]
+            # $lkjlogdetgradsym = $lkjlogdetgrad
+            # $lkjjacobiansym = $lkjjacobian
+            # @show $zsym
+            # @show $(Symbol("###seed###", out)) * $lkjjacobiansym
+            # @show $lkjlogdetgradsym
+            $seedlkj = $lkjlogdetgradsym + ($(Symbol("###seed###", out)) * $lkjjacobiansym).parent # .parent to take off the transpose
+            # @show $seedlkj'
+            # @show $invlogitout'
+            # @show $∂invlogitout'
+            ProbabilityModels.DistributionParameters.LoopVectorization.@vectorize $T for $i ∈ 1:$N
+                $∂θ[$i] = one($T) - $(T(2)) * ( ($invlogitout)[$i] - ($seedlkj)[$i] * ($∂invlogitout)[$i] )
             end
             $∂θ += $N
         end)
+        push!(q.args, quote
+            # $zsym = ConstantFixedSizePaddedVector{$M}($mv)
+            # $lkjconstrain_q
+            # $out = $lkjconstrained_expr
+            $out, $lkjlogdetsym, $lkjlogdetgradsym, $lkjjacobiansym = DistributionParameters.∂lkj_constrain($zsym)
+            $θ += $N
+            # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
+            target += $log_jac + $lkjlogdetsym
+        end)
+        # @show second_pass
     else
-        lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(N, T, zsym)
+        # lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(N, T, zsym)
+
+        push!(q.args, quote
+            # $zsym = ConstantFixedSizePaddedVector{$M}($mv)
+            # $lkjconstrain_q
+            # $out = $lkjconstrained_expr
+            $out, $lkjlogdetsym = DistributionParameters.lkj_constrain($zsym)
+            $θ += $N
+            # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
+            target += $log_jac + $lkjlogdetsym
+        end)
     end
     # push!(q.args, :(@show $zsym))
-    push!(q.args, quote
-        # $zsym = ConstantFixedSizePaddedVector{$M}($mv)
-        $lkjconstrain_q
-        $out = $lkjconstrained_expr
-        $θ += $N
-        # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
-        target += $log_jac + $lkjlogdetsym
-    end)
+
     push!(first_pass, q)
 
     nothing

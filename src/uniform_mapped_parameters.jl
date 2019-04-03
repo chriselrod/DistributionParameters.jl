@@ -110,7 +110,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{BoundedFloat{LB,UB,
         target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
     end)
     if partial
-        push!(second_pass, :(ProbabilityModels.VectorizationBase.store!($∂θ, one($T) - 2$invlogitout + $(Symbol("###seed###", out)) * $∂invlogitout * $(T(UB - LB)))))
+        push!(second_pass, :(ProbabilityModels.VectorizationBase.store!($∂θ, one($T) - 2*$invlogitout + $(Symbol("###seed###", out)) * $∂invlogitout * $(T(UB - LB)))))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -128,7 +128,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{UnitFloat{T}}, part
         target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
     end)
     if partial
-        push!(second_pass, :(ProbabilityModels.VectorizationBase.store!($∂θ, one($T) - 2$out + $(Symbol("###seed###", out)) * $∂invlogitout)))
+        push!(second_pass, :(ProbabilityModels.VectorizationBase.store!($∂θ, one($T) - 2*$out + $(Symbol("###seed###", out)) * $∂invlogitout)))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -251,9 +251,10 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: RealVector{M,T}}
     ∂θ = Symbol("##∂θparameter##")
     push!(first_pass, :($out = DistributionParameters.SIMDPirates.vload(RealVector{$M,$T}, $θ); $θ += $M))
     if partial
+        isym = gensym(:i)
         push!(second_pass, quote
-            DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = ($(Symbol("###seed###", out)))[i]
+            DistributionParameters.LoopVectorization.@vectorize $T for $isym ∈ 1:$M
+                $∂θ[$isym] = ($(Symbol("###seed###", out)))[$isym]
             end
             $∂θ += $M
         end)
@@ -308,9 +309,10 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
     push!(first_pass, :($out = @inbounds PositiveVector{$M}($outtup)))
 
     if partial
+        i = gensym(:i)
         push!(second_pass, quote
-            DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) + ($(Symbol("###seed###", out)))[i] * ($out)[i]
+            DistributionParameters.LoopVectorization.@vectorize $T for $i ∈ 1:$M
+                $∂θ[$i] = one($T) + ($(Symbol("###seed###", out)))[$i] * ($out)[$i]
             end
             $∂θ += $M
         end)
@@ -365,9 +367,10 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
     push!(first_pass, :($out = @inbounds LowerBoundVector{$M,$LB}($outtup)))
 
     if partial
+        i = gensym(:i)
         push!(second_pass, quote
-            DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) + ($(Symbol("###seed###", out)))[i] * ($out)[i]
+            DistributionParameters.LoopVectorization.@vectorize $T for $i ∈ 1:$M
+                $∂θ[$i] = one($T) + ($(Symbol("###seed###", out)))[$i] * ($out)[$i]
             end
             $∂θ += $M
         end)
@@ -421,9 +424,10 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
     push!(first_pass, :($out = @inbounds UpperBoundVector{$M,$UB}($outtup)))
 
     if partial
+        i = gensym(:i)
         push!(second_pass, quote
-            DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) + ($(Symbol("###seed###", out)))[i] * ($out)[i]
+            DistributionParameters.LoopVectorization.@vectorize $T for $i ∈ 1:$M
+                $∂θ[$i] = one($T) + ($(Symbol("###seed###", out)))[$i] * ($out)[$i]
             end
             $∂θ += $M
         end)
@@ -445,6 +449,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
     rem = M & Wm1
     L = (M + Wm1) & ~Wm1
     log_jac = gensym(:log_jac)
+    i = gensym(:i)
     q = quote
         $mv = MutableFixedSizePaddedVector{$M,$T}(undef)
         $log_jac = DistributionParameters.SIMDPirates.vbroadcast(Vec{$W,$T}, zero($T))
@@ -454,17 +459,17 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
         push!(q.args, :($∂invlogitout = MutableFixedSizePaddedVector{$M,$T}(undef)))
     end
     loop_body = quote
-        $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($θ[i]))
+        $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($θ[$i]))
     end
     if partial
-        push!(loop_body.args, :($invlogitout[i] = one($T) - $ninvlogitout))
-        push!(loop_body.args, :($∂invlogitout[i] = $ninvlogitout * $invlogitout[i]))
-        push!(loop_body.args, :($mv[i] = $LB + $(UB-LB) * $invlogitout[i]))
-        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout[i])))
+        push!(loop_body.args, :($invlogitout[$i] = one($T) - $ninvlogitout))
+        push!(loop_body.args, :($∂invlogitout[$i] = $ninvlogitout * $invlogitout[$i]))
+        push!(loop_body.args, :($mv[$i] = $LB + $(UB-LB) * $invlogitout[$i]))
+        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout[$i])))
     else
         push!(loop_body.args, :($invlogitout = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout = $ninvlogitout * $invlogitout))
-        push!(loop_body.args, :($mv[i] = $LB + $(UB-LB) * $invlogitout))
+        push!(loop_body.args, :($mv[$i] = $LB + $(UB-LB) * $invlogitout))
         push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout)))
     end
 
@@ -480,7 +485,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($(Symbol("###seed###", out)))[i] * ($∂invlogitout)[i] * $(T(UB - LB))
+                $∂θ[$i] = one($T) - 2($invlogitout)[$i] + ($(Symbol("###seed###", out)))[$i] * ($∂invlogitout)[$i] * $(T(UB - LB))
             end
             $∂θ += $M
         end)
@@ -494,6 +499,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
     invlogitout = gensym(out)
     ∂invlogitout = gensym(out)
 
+    i = gensym(:i)
     W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
     sumθᵢ = gensym(:sumθᵢ)
     Wm1 = W - 1
@@ -509,17 +515,17 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
         push!(q.args, :($∂invlogitout = MutableFixedSizePaddedVector{$M,$T}(undef)))
     end
     loop_body = quote
-        $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($θ[i]))
+        $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($θ[$i]))
     end
     if partial
-        push!(loop_body.args, :($invlogitout[i] = one($T) - $ninvlogitout))
-        push!(loop_body.args, :($∂invlogitout[i] = $ninvlogitout * $invlogitout[i]))
-        push!(loop_body.args, :($mv[i] = $invlogitout[i]))
-        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout[i])))
+        push!(loop_body.args, :($invlogitout[$i] = one($T) - $ninvlogitout))
+        push!(loop_body.args, :($∂invlogitout[$i] = $ninvlogitout * $invlogitout[$i]))
+        push!(loop_body.args, :($mv[$i] = $invlogitout[$i]))
+        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout[$i])))
     else
         push!(loop_body.args, :($invlogitout = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout = $ninvlogitout * $invlogitout))
-        push!(loop_body.args, :($mv[i] = $invlogitout))
+        push!(loop_body.args, :($mv[$i] = $invlogitout))
         push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout)))
     end
 
@@ -535,7 +541,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
     if partial
         push!(second_pass, quote
             DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                $∂θ[i] = one($T) - 2($invlogitout)[i] + ($(Symbol("###seed###", out)))[i] * ($∂invlogitout)[i]
+                $∂θ[$i] = one($T) - 2($invlogitout)[$i] + ($(Symbol("###seed###", out)))[$i] * ($∂invlogitout)[$i]
             end
             $∂θ += $M
         end)
@@ -662,10 +668,11 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: RealMatrix{M,N,T
     ∂θ = Symbol("##∂θparameter##")
     push!(first_pass, :($out = DistributionParameters.SIMDPirates.vload(RealMatrix{M,N,T}, $θ); $θ += $(M*N)))
     if partial
+        i = gensym(:i)
         push!(second_pass, quote
             for n ∈ 0:$(N-1)
-                DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
-                    $∂θ[i+$M*n] = ($(Symbol("###seed###", out)))[i+$M*n]
+                DistributionParameters.LoopVectorization.@vectorize $T for $i ∈ 1:$M
+                    $∂θ[$i+$M*n] = ($(Symbol("###seed###", out)))[$i+$M*n]
                 end
             end
             $∂θ += $(M*N)
