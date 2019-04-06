@@ -121,14 +121,16 @@ function load_parameter(first_pass, second_pass, out, ::Type{UnitFloat{T}}, part
     ninvlogitout = gensym(out)
     ∂invlogitout = gensym(out)
     push!(first_pass, quote
-        $ninvlogitout = one($T) / (one($T) + exp(ProbabilityModels.VectorizationBase.load($θ)))
+        $ninvlogitout = one($T) / (one($T) + exp($(T(0.5)) * ProbabilityModels.VectorizationBase.load($θ)))
         $out = one($T) - $ninvlogitout
         $∂invlogitout = $ninvlogitout * $out
         $θ += 1
-        target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
+        target += $(T(0.5)) * log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
+        # target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
     end)
     if partial
-        push!(second_pass, :(ProbabilityModels.VectorizationBase.store!($∂θ, one($T) - 2*$out + $(Symbol("###seed###", out)) * $∂invlogitout)))
+        push!(second_pass, :(ProbabilityModels.VectorizationBase.store!($∂θ, $(T(0.5)) - $out + $(T(0.5))*$(Symbol("###seed###", out)) * $∂invlogitout)))
+        # push!(second_pass, :(ProbabilityModels.VectorizationBase.store!($∂θ, one($T) - 2*$out + $(Symbol("###seed###", out)) * $∂invlogitout)))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -297,9 +299,9 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
     else
         L = M + W - rem
         v = gensym(:v)
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n_unmasked_loads*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
-        push!(first_pass, :($v = SLEEFPirates.exp_ine($v)))
+        push!(first_pass, :($v = SLEEFPirates.exp($v)))
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
         end
@@ -356,7 +358,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
     else
         L = M + W - rem
         v = gensym(:v)
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n_unmasked_loads*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp($v))))
         for w ∈ 1:W
@@ -413,7 +415,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
     end
     if rem != 0
         v = gensym(:v)
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n_unmasked_loads*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
         push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp($v))))
         for w ∈ 1:W

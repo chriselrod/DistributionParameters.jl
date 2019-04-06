@@ -295,14 +295,22 @@ function constrain_lkj_factor_jac_quote(L, T, zsym)
         end
     end
     output = Expr(:tuple,)
-    for mc ∈ 1:M+1
+    for mc ∈ 1:Mp1
         push!(output.args, Symbol(:x_, mc, :_, mc))
     end
-    for mc ∈ 1:M+1
-        for mr ∈ mc+1:M+1
+    for mc ∈ 1:Mp1
+        for mr ∈ mc+1:Mp1
             push!(output.args, Symbol(:x_, mr, :_, mc))
         end
     end
+    Wm1 = VectorizationBase.pick_vector_width(Mp1, T) - 1
+    LKJ_L1 = StructuredMatrices.binomial2(Mp1+1)
+    LKJ_L = (LKJ_L1 + Wm1) & ~Wm1
+    for i ∈ LKJ_L1+1:LKJ_L
+        push!(output.args, zero(T))
+    end
+
+
     ∂logdet = Expr(:tuple,)
     for mc ∈ 1:M
         push!(∂logdet.args, zero(T))
@@ -310,6 +318,12 @@ function constrain_lkj_factor_jac_quote(L, T, zsym)
             push!(∂logdet.args, Symbol(:∂ljp_, mr, :_, mc))
         end
     end
+    ∂logdet_len = length(∂logdet.args)
+    ∂logdet_len_full = (∂logdet_len + Wm1) & ~Wm1
+    for i ∈ ∂logdet_len+1:∂logdet_len_full
+        push!(∂logdet.args, zero(T))
+    end
+
     logdetsym = gensym(:logdet)
     if M > 1
         push!(q.args, :($logdetsym = log( $(Expr(:call, :*, [Symbol(:ljp_,m) for m ∈ 3:Mp1]...)) ) ))
@@ -347,7 +361,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym)
         @fastmath @inbounds begin
             $q
         end
-    end, :(DistributionParameters.LKJ_Correlation_Cholesky{$Mp1,$T,$(StructuredMatrices.binomial2(Mp1+1))}($output)), logdetsym, :(DistributionParameters.ConstantFixedSizePaddedVector{$L}($∂logdet)), :(DistributionParameters.LKJCholeskyConstraintAdjoint{$Mp1,$T,$Ladj}($jacobian_tuple))
+    end, :(DistributionParameters.LKJ_Correlation_Cholesky{$Mp1,$T,$(LKJ_L)}($output)), logdetsym, :(DistributionParameters.ConstantFixedSizePaddedVector{$L}($∂logdet)), :(DistributionParameters.LKJCholeskyConstraintAdjoint{$Mp1,$T,$Ladj}($jacobian_tuple))
 end
 
 @generated function lkj_constrain(zlkj::PaddedMatrices.AbstractFixedSizePaddedVector{L,T}) where {L,T}
@@ -399,7 +413,8 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LKJ_Correlation_
     end
     i = gensym(:i)
     loop_body = quote
-        $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($θ[$i]))
+        $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($(T(0.5)) * $θ[$i]))
+        # $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($θ[$i]))
     end
     if partial
         push!(loop_body.args, :($invlogitout[$i] = one($T) - $ninvlogitout))
@@ -435,7 +450,8 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LKJ_Correlation_
             # @show $invlogitout'
             # @show $∂invlogitout'
             ProbabilityModels.DistributionParameters.LoopVectorization.@vectorize $T for $i ∈ 1:$N
-                $∂θ[$i] = one($T) - $(T(2)) * ( ($invlogitout)[$i] - ($seedlkj)[$i] * ($∂invlogitout)[$i] )
+                $∂θ[$i] = $(T(0.5)) - ($invlogitout)[$i] + ($seedlkj)[$i] * ($∂invlogitout)[$i]
+                # $∂θ[$i] = one($T) - $(T(2)) * ( ($invlogitout)[$i] - ($seedlkj)[$i] * ($∂invlogitout)[$i] )
             end
             $∂θ += $N
         end)
@@ -446,7 +462,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LKJ_Correlation_
             $out, $lkjlogdetsym, $lkjlogdetgradsym, $lkjjacobiansym = DistributionParameters.∂lkj_constrain($zsym)
             $θ += $N
             # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
-            target += $log_jac + $lkjlogdetsym
+            target += $(T(0.5)) * ($log_jac + $lkjlogdetsym)
         end)
         # @show second_pass
     else
@@ -459,7 +475,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LKJ_Correlation_
             $out, $lkjlogdetsym = DistributionParameters.lkj_constrain($zsym)
             $θ += $N
             # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
-            target += $log_jac + $lkjlogdetsym
+            target += $(T(0.5)) * ($log_jac + $lkjlogdetsym)
         end)
     end
     # push!(q.args, :(@show $zsym))
