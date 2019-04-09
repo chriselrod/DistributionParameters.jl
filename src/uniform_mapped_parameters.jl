@@ -121,7 +121,8 @@ function load_parameter(first_pass, second_pass, out, ::Type{UnitFloat{T}}, part
     ninvlogitout = gensym(out)
     ∂invlogitout = gensym(out)
     push!(first_pass, quote
-        $ninvlogitout = one($T) / (one($T) + exp($(T(0.5)) * ProbabilityModels.VectorizationBase.load($θ)))
+        # $ninvlogitout = one($T) / (one($T) + exp($(T(0.5)) * ProbabilityModels.VectorizationBase.load($θ)))
+        $ninvlogitout = one($T) / (one($T) + exp(ProbabilityModels.VectorizationBase.load($θ)))
         $out = one($T) - $ninvlogitout
         $∂invlogitout = $ninvlogitout * $out
         $θ += 1
@@ -129,8 +130,8 @@ function load_parameter(first_pass, second_pass, out, ::Type{UnitFloat{T}}, part
         # target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
     end)
     if partial
-        push!(second_pass, :(ProbabilityModels.VectorizationBase.store!($∂θ, $(T(0.5)) - $out + $(T(0.5))*$(Symbol("###seed###", out)) * $∂invlogitout)))
-        # push!(second_pass, :(ProbabilityModels.VectorizationBase.store!($∂θ, one($T) - 2*$out + $(Symbol("###seed###", out)) * $∂invlogitout)))
+        # push!(second_pass, :(ProbabilityModels.VectorizationBase.store!($∂θ, $(T(0.5)) - $out + $(T(0.5))*$(Symbol("###seed###", out)) * $∂invlogitout)))
+        push!(second_pass, :(ProbabilityModels.VectorizationBase.store!($∂θ, one($T) - 2*$out + $(Symbol("###seed###", out)) * $∂invlogitout)))
         push!(second_pass, :($∂θ += 1))
     end
     nothing
@@ -476,7 +477,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
     end
 
     push!(q.args, quote
-        DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$L
+        DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
             $loop_body
         end
         $out = BoundedVector{$M,$LB,$UB}($mv)
@@ -532,7 +533,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
     end
 
     push!(q.args, quote
-        DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$L
+        DistributionParameters.LoopVectorization.@vectorize $T for i ∈ 1:$M
             $loop_body
         end
         $out = UnitVector{$M}($mv)
