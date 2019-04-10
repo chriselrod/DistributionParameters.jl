@@ -5,7 +5,8 @@ using PaddedMatrices, StructuredMatrices, LinearAlgebra,
 
 export RealFloat, PositiveFloat, LowerBoundedFloat, UpperBoundedFloat, BoundedFloat, UnitFloat,
     RealVector, PositiveVector, LowerBoundVector, UpperBoundVector, BoundedVector, UnitVector,
-    RealMatrix, PositiveMatrix, LowerBoundMatrix, UpperBoundMatrix, BoundedMatrix, UnitMatrix
+    RealMatrix, PositiveMatrix, LowerBoundMatrix, UpperBoundMatrix, BoundedMatrix, UnitMatrix,
+    constrain
 
 """
 Transform a parameter vector to the constrained space.

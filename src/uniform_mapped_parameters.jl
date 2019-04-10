@@ -126,7 +126,8 @@ function load_parameter(first_pass, second_pass, out, ::Type{UnitFloat{T}}, part
         $out = one($T) - $ninvlogitout
         $∂invlogitout = $ninvlogitout * $out
         $θ += 1
-        target += $(T(0.5)) * log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
+        target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
+        # target += $(T(0.5)) * log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
         # target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
     end)
     if partial

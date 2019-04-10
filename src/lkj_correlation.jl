@@ -600,7 +600,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LKJ_Correlation_
             $out, $lkjlogdetsym = DistributionParameters.lkj_constrain($zsym)
             $θ += $N
             # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
-            target += $(T(0.5)) * ($log_jac + $lkjlogdetsym)
+            target += ($log_jac + $lkjlogdetsym)
         end)
     end
     # push!(q.args, :(@show $zsym))
