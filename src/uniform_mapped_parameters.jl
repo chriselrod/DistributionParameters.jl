@@ -277,32 +277,38 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: PositiveVector{M
     V = Vec{W,T}
     sumθᵢ = gensym(:sumθᵢ)
     n_unmasked_loads = M >> Wshift
-    rem = M & (W - 1)
+    Wm1 = W - 1
+    rem = M & Wm1
 
-    v = gensym(:v)
-    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
-    push!(first_pass, :($sumθᵢ = $v))
-    push!(first_pass, :($v = SLEEFPirates.exp($v)))
+
     outtup = Expr(:tuple,)
-    for w ∈ 1:W
-        push!(outtup.args, :($v[$w].value))
-    end
-    for n ∈ 1:n_unmasked_loads-1
+    if n_unmasked_loads > 0
         v = gensym(:v)
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
-        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
+        push!(first_pass, :($sumθᵢ = $v))
         push!(first_pass, :($v = SLEEFPirates.exp($v)))
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
         end
+        for n ∈ 1:n_unmasked_loads-1
+            v = gensym(:v)
+            push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
+            push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+            push!(first_pass, :($v = SLEEFPirates.exp($v)))
+            for w ∈ 1:W
+                push!(outtup.args, :($v[$w].value))
+            end
+        end
     end
-    if rem == 0
-        L = M
-    else
-        L = M + W - rem
+    L = (M + Wm1) & ~Wm1
+    if rem != 0
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n_unmasked_loads*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
-        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        if n_unmasked_loads > 0
+            push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        else
+            push!(first_pass, :($sumθᵢ = $v))
+        end
         push!(first_pass, :($v = SLEEFPirates.exp($v)))
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
@@ -334,34 +340,39 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector
     V = Vec{W,T}
     sumθᵢ = gensym(:sumθᵢ)
     n_unmasked_loads = M >> Wshift
-    rem = M & (W - 1)
+    Wm1 = W - 1
+    rem = M & Wm1
 
-    v = gensym(:v)
     vlb = gensym(:LB)
-    push!(first_pass, :($vlb = DistributionParameters.SIMDPirates.vbroadcast($V, $(T(LB)))))
-    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
-    push!(first_pass, :($sumθᵢ = $v))
-    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp($v))))
-    outtup = Expr(:tuple,)
-    for w ∈ 1:W
-        push!(outtup.args, :($v[$w].value))
-    end
-    for n ∈ 1:n_unmasked_loads-1
+    if n_unmasked_loads > 0
         v = gensym(:v)
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
-        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        push!(first_pass, :($vlb = DistributionParameters.SIMDPirates.vbroadcast($V, $(T(LB)))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
+        push!(first_pass, :($sumθᵢ = $v))
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp($v))))
+        outtup = Expr(:tuple,)
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
         end
+        for n ∈ 1:n_unmasked_loads-1
+            v = gensym(:v)
+            push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
+            push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+            push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp($v))))
+            for w ∈ 1:W
+                push!(outtup.args, :($v[$w].value))
+            end
+        end
     end
-    if rem == 0
-        L = M
-    else
-        L = M + W - rem
+    L = (M + Wm1) & ~Wm1
+    if rem != 0
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n_unmasked_loads*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
-        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        if n_unmasked_loads > 0
+            push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        else
+            push!(first_pass, :($sumθᵢ = $v))
+        end
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vadd($vlb, SLEEFPirates.exp($v))))
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
@@ -396,29 +407,35 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
     rem = M & Wm1
     L = (M + Wm1) & ~Wm1
 
-    v = gensym(:v)
     vlb = gensym(:LB)
-    push!(first_pass, :($vub = DistributionParameters.SIMDPirates.vbroadcast($V, $(T(UB)))))
-    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
-    push!(first_pass, :($sumθᵢ = $v))
-    push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp($v))))
-    outtup = Expr(:tuple,)
-    for w ∈ 1:W
-        push!(outtup.args, :($v[$w].value))
-    end
-    for n ∈ 1:n_unmasked_loads-1
+    if n_unmasked_loads > 0
         v = gensym(:v)
-        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
-        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        push!(first_pass, :($vub = DistributionParameters.SIMDPirates.vbroadcast($V, $(T(UB)))))
+        push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ)))
+        push!(first_pass, :($sumθᵢ = $v))
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp($v))))
+        outtup = Expr(:tuple,)
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
+        end
+        for n ∈ 1:n_unmasked_loads-1
+            v = gensym(:v)
+            push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n*W))))
+            push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+            push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp($v))))
+            for w ∈ 1:W
+                push!(outtup.args, :($v[$w].value))
+            end
         end
     end
     if rem != 0
         v = gensym(:v)
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vload($V, $θ + $(n_unmasked_loads*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
-        push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        if n_unmasked_loads > 0
+            push!(first_pass, :($sumθᵢ = DistributionParameters.SIMDPirates.vadd($sumθᵢ, $v)))
+        else
+            push!(first_pass, :($sumθᵢ = $v))
+        end
         push!(first_pass, :($v = DistributionParameters.SIMDPirates.vsub($vub, SLEEFPirates.exp($v))))
         for w ∈ 1:W
             push!(outtup.args, :($v[$w].value))
