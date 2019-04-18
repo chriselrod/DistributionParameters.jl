@@ -1,3 +1,5 @@
+using PaddedMatrices: PaddedMatrix
+
 struct ∂MultivariateNormalVariate{T} <: AbstractMatrix{T}
     data::PaddedMatrix{T}
 end
@@ -24,14 +26,14 @@ function LinearAlgebra.cholesky!(Σ::CovarianceMatrix)
     cholesky!(Σ.Σ)
 end
 
-function Base.(:\)(U::UpperTriangular{T,Matrix{T}}, Y::MultivariateNormalVariate{T}) where {T}
+function Base.:\(U::UpperTriangular{T,Matrix{T}}, Y::MultivariateNormalVariate{T}) where {T}
     δ = Y.δ
     # Σ⁻¹δ = Y.Σ⁻¹δ
     # copyto!(Σ⁻¹δ, δ)
     LinearAlgebra.LAPACK.trtrs!('L', 'N', 'N', U.data, δ)
 end
 
-function Base.(:\)(U::Cholesky{T,Matrix{T}}, Y::MultivariateNormalVariate{T}) where {T}
+function Base.:\(U::Cholesky{T,Matrix{T}}, Y::MultivariateNormalVariate{T}) where {T}
     δ = Y.δ
     Σ⁻¹δ = Y.Σ⁻¹δ.data
     copyto!(Σ⁻¹δ, δ)
@@ -71,6 +73,16 @@ function CovarianceMatrix(
         Sigfull
     end
 end
+
+struct Covariance_LAR_AR_Adjoint{K, nT, T, nTP, L, LKJ_T <: StructuredMatrices.AbstractLowerTriangularMatrix}
+    ∂ARs::MutableFixedSizePaddedArray{Tuple{nT,nT,K},T,3,nTP,L}
+    LKJ::LKJ_T
+end
+struct Covariance_LAR_L_Adjoint{K, nT, T, nTP, L, LKJ_T <: StructuredMatrices.AbstractLowerTriangularMatrix}
+    ARs::MutableFixedSizePaddedArray{Tuple{nT,nT,K},T,3,nTP,L}
+    LKJ::LKJ_T
+end
+
 function ∂CovarianceMatrix(
                 rhos::PaddedMatrices.AbstractFixedSizePaddedVector{K,T}, L::StructuredMatrices.AbstractLowerTriangularMatrix{K,T},
                 times::ConstantFixedSizePaddedVector{nT}, workspace, ::Val{(true,true)}
@@ -129,7 +141,120 @@ function ∂CovarianceMatrix(
                 end
             end
         end
-        Sigfull
+        Sigfull, Covariance_LAR_AR_Adjoint(∂ARs,L), Covariance_LAR_L_Adjoint(ARs,L)
+    end
+end
+
+
+@generated function Base.:*(C::AbstractMatrix{T},
+                adj::Covariance_LAR_AR_Adjoint{K, nT, T, nTP}
+                ) where {K, nT, T, nTP}
+
+    Wm1 = VectorizationBase.pick_vector_width(T)-1
+    KL = (K+Wm1) & ~Wm1
+    outtup = Expr(:tuple, [:(κ_$k) for k ∈ 1:K]..., [zero(T) for k ∈ K+1:KL]...)
+    quote
+        $(Expr(:meta,:inline))
+        # Calculate all in 1 pass?
+        # ∂C∂ρ = MutableFixedSizePaddedVector{K,T}(undef)
+        # Cstride = stride(C,2)
+        LKJ = adj.LKJ
+        ∂ARs = adj.∂ARs
+        Base.Cartesian.@nexprs $K kc -> begin
+            ccoloffset = (kc-1)*$nT
+
+            kr = kc # diagonal block
+            l_ki_kj = LKJ[kr,kc]
+            @inbounds for tc ∈ 1:nT
+                ctcoloffset = ccoloffset + tc
+                crowoffset = (kr-1)*$nT
+                for tr ∈ tc:nT
+                    cij = C[tr + crowoffset, ctcoloffset]
+                    Base.Cartesian.@nexprs kc k -> begin
+                        κ_k = Base.FastMath.add_fast(Base.FastMath.mul_fast(cij,l_ki_kj,∂ARs[tr,tc,k]), κ_k)
+                    end
+                end
+            end
+
+            # offdiagonal block
+            @inbounds for tc ∈ 1:nT
+                ctcoloffset = ccoloffset + tc
+                for kr ∈ kc+1:K
+                    l_ki_kj = LKJ[kr,kc]
+                    crowoffset = (kr-1)*$nT
+                    for tr ∈ 1:nT
+                        cij = C[tr + crowoffset, ctcoloffset]
+                        Base.Cartesian.@nexprs kc k -> begin
+                            κ_k = Base.FastMath.add_fast(Base.FastMath.mul_fast(cij,l_ki_kj,∂ARs[tr,tc,k]), κ_k)
+                        end
+                    end
+                end
+            end
+        end
+
+        ConstantFixedSizePaddedVector{$K,$T,$KL,$KL}( $outtup )
+
+    end
+end
+
+@generated function Base.:*(C::AbstractMatrix{T},
+                adj::Covariance_LAR_L_Adjoint{K, nT, T, nTP}
+                ) where {K, nT, T, nTP}
+
+    ∂LKJ = MutableLowerTriangualrMatrix{K,T}(undef)
+    quote
+        # $(Expr(:meta,:inline))
+
+        # ∂LKJ = MutableLowerTriangualrMatrix{$K,$T}(undef)
+        ∂LKJ = $∂LKJ
+
+        for kc ∈ 1:$K
+            for kr ∈ kc:$K
+                AR[:,:,kc]
+                for lr ∈ kc:kr
+                    LKJ[lr,kc]
+                end
+                for lr ∈ kr+1:KL
+                    LKJ[lr,kc]
+                end
+
+            end
+        end
+
+
+
+        Base.Cartesian.@nexprs $K kc -> begin
+            ccoloffset = (kc-1)*$nT
+
+            kr = kc # diagonal block
+            l_ki_kj = LKJ[kr,kc]
+            @inbounds for tc ∈ 1:nT
+                ctcoloffset = ccoloffset + tc
+                crowoffset = (kr-1)*$nT
+                for tr ∈ tc:nT
+                    cij = C[tr + crowoffset, ctcoloffset]
+                    Base.Cartesian.@nexprs kc k -> begin
+                        κ_k = Base.FastMath.add_fast(Base.FastMath.mul_fast(cij,l_ki_kj,∂ARs[tr,tc,k]), κ_k)
+                    end
+                end
+            end
+
+            # offdiagonal block
+            @inbounds for tc ∈ 1:nT
+                ctcoloffset = ccoloffset + tc
+                for kr ∈ kc+1:K
+                    l_ki_kj = LKJ[kr,kc]
+                    crowoffset = (kr-1)*$nT
+                    for tr ∈ 1:nT
+                        cij = C[tr + crowoffset, ctcoloffset]
+                        Base.Cartesian.@nexprs kc k -> begin
+                            κ_k = Base.FastMath.add_fast(Base.FastMath.mul_fast(cij,l_ki_kj,∂ARs[tr,tc,k]), κ_k)
+                        end
+                    end
+                end
+            end
+        end
+        ∂LKJ
     end
 end
 
