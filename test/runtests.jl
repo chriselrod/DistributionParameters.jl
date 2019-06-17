@@ -11,24 +11,67 @@ S = (@Constant randn(K,4K)) |> x -> x * x'
 S *= (1/16)
 pS = StructuredMatrices.SymmetricMatrixL(S)
 L = StructuredMatrices.lower_chol(S);
-
+    L * L'
 T = 8; δₜ = (1/16) * reduce(+, (@Constant randexp(T-1)) for i ∈ 1:8)
-times = vcat(zero(ConstantFixedSizePaddedVector{1,Float64}), cumsum(δₜ));
-ρ = ConstantFixedSizePaddedVector{4}((0.5,0.55,0.60,0.65));
-
+    times = vcat(zero(ConstantFixedSizePaddedVector{1,Float64}), cumsum(δₜ));
+    ρtup = (0.5,0.55,0.60,0.65);
+    ρ = ConstantFixedSizePaddedVector{4}((0.5,0.55,0.60,0.65));
+    
+KT = K*T;
+    
 workspace = (
-    Sigfull = PaddedMatrices.PaddedArray{Float64}(undef, (K*T,K*T)),
+    Sigfull = PaddedMatrices.PaddedArray{Float64}(undef, (K*T,K*T), (KT+15) & -8),
     ARs = PaddedMatrices.MutableFixedSizePaddedArray{Tuple{T,T,K},Float64}(undef),
     ∂ARs = PaddedMatrices.MutableFixedSizePaddedArray{Tuple{T,T,K},Float64}(undef)
 );
-Cov, pAR, pL = DistributionParameters.∂CovarianceMatrix(ρ, L, times, workspace, Val((true,true)))
+fill!(workspace.Sigfull, 19.5);
+Cov, pAR, pL = DistributionParameters.∂CovarianceMatrix(ρ, L, times, workspace, Val((true,true)));
+    Cov
+    function fill_block_diag(B::AbstractArray{T,3}) where {T}
+        M, N, K = size(B)
+        A = zeros(M*K,N*K)
+        for k ∈ 0:K-1
+            A[1+k*M:(k+1)*M,1+k*N:(k+1)*N] .= @view B[:,:,k+1]
+        end
+        A
+    end
+    Lfull = kron(L, Matrix{Float64}(I, T, T)); ARfull = fill_block_diag(pL.ARs);
+    @test ( Lfull * ARfull * Lfull' .≈ Symmetric(Cov) ) |> all
+    
+    Cov = DistributionParameters.CovarianceMatrix(ρ, L, times, workspace); Cov
+#    Cov1s = PaddedMatrices.PaddedArray{Float64}(undef, (K*T,K*T)); Cov1s .= 1;
 
-Cov1s = PaddedMatrices.PaddedArray{Float64}(undef, (K*T,K*T)); Cov1s .= 1;
+    using ForwardDiff, StaticArrays
 
 
+     function DistributionParameters.CovarianceMatrix(
+         rhos::PaddedMatrices.AbstractFixedSizePaddedVector{K,T},
+         L::StructuredMatrices.AbstractLowerTriangularMatrix,
+         times::ConstantFixedSizePaddedVector{nT}
+     ) where {K,T,nT}
 
+         workspace = (
+             Sigfull = PaddedMatrices.PaddedArray{T}(undef, (K*nT,K*nT)),
+             ARs = PaddedMatrices.MutableFixedSizePaddedArray{Tuple{nT,nT,K},T}(undef),
+         )
+         DistributionParameters.CovarianceMatrix(rhos, L, times, workspace)
+         
+     end
+    ForwardDiff.gradient(r -> sum(Symmetric(DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{4}(ntuple(i -> r[i], Val(4))), L, times))), SVector(0.5,0.5,0.7,0.75))
 
+zd = ones(K*T,K*T) ; #.- LowerTriangular(ones(K*T,K*T));
 
+    ForwardDiff.gradient(r -> sum(Symmetric(zd .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{4}(ntuple(i -> r[i], Val(4))), L, times))), SVector(0.5,0.65,0.7,0.75))
+    zd * pAR
+
+    Ctest = zeros(KT,KT); Ctest[1+(K-1)*T:KT, 1+(K-1)*T:KT] .= pAR.∂ARs[:,:,K];
+    (Lfull * Ctest * Lfull') |> sum
+
+    ForwardDiff.gradient(
+        r -> sum(UpperTriangular(zd .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{4}(ntuple(i -> r[i], Val(4))), L, times))), SVector(0.5,0.65,0.7,0.75))
+    
+
+    
 vunstable(x::AbstractVector{T}) where {T} = ConstantFixedSizePaddedArray{Tuple{length(x)},T,1}(ntuple(i -> x[i], length(x)))
 x = randn(16,16);
 ltx = LowerTriangular(x);
