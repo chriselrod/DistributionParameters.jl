@@ -3,6 +3,8 @@ module DistributionParameters
 using PaddedMatrices, StructuredMatrices, LinearAlgebra,
         SIMDPirates, SLEEFPirates, LoopVectorization, VectorizationBase
 
+using PaddedMatrices: StackPointer, @support_stack_pointer,
+    AbstractMutableFixedSizePaddedVector, AbstractFixedSizePaddedVector
 export RealFloat, PositiveFloat, LowerBoundedFloat, UpperBoundedFloat, BoundedFloat, UnitFloat,
     RealVector, PositiveVector, LowerBoundVector, UpperBoundVector, BoundedVector, UnitVector,
     RealMatrix, PositiveMatrix, LowerBoundMatrix, UpperBoundMatrix, BoundedMatrix, UnitMatrix,
@@ -17,5 +19,7 @@ include("uniform_mapped_parameters.jl")
 include("lkj_correlation.jl")
 include("normal_variates.jl")
 # include("autoregressive_matrix.jl")
+
+@support_stack_pointer load_parameter
 
 end # module
