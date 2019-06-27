@@ -31,19 +31,20 @@ workspace = (
 fill!(workspace.Sigfull, 19.5);
 Cov, pAR, pL = DistributionParameters.∂DynamicCovarianceMatrix(ρ, L, times, workspace, Val((true,true)));
     using BenchmarkTools
-
-    
+#pL |> typeof
+#spL |> typeof
+#spL    
     mtimes = MutableFixedSizePaddedVector(times);
-    sp, (spC, spAR, spL) = DistributionParameters.∂DynamicCovarianceMatrix(ProbabilityModels.STACK_POINTER, ρ, L, mtimes, Val((true,true)));
+    sp, (spC, spAR, spL) = DistributionParameters.∂CovarianceMatrix(ProbabilityModels.STACK_POINTER, ρ, L, mtimes, Val((true,true)));
 #    sp0 = PaddedMatrices.StackPointer(Libc.malloc(8*1<<28));
 
 #    sp, (spC, spAR, spL) = DistributionParameters.∂DynamicCovarianceMatrix(sp0, ρ, L, mtimes, Val((true,true)));
     @benchmark DistributionParameters.∂DynamicCovarianceMatrix($ρ, $L, $times, $workspace, Val((true,true)))
-    @benchmark DistributionParameters.∂DynamicCovarianceMatrix(ProbabilityModels.STACK_POINTER, $ρ, $L, $mtimes, Val((true,true)))
+    @benchmark DistributionParameters.∂CovarianceMatrix(ProbabilityModels.STACK_POINTER, $ρ, $L, $mtimes, Val((true,true)))
 #exit()
     @code_warntype DistributionParameters.∂DynamicCovarianceMatrix(sp0, ρ, L, mtimes, Val((true,true)),Val(true));
 #typeof(L)
-spL[1]
+spL.ARs
 pL.ARs
 
 @benchmark PaddedMatrices.PtrArray{Tuple{36,36,7}}($sp)
@@ -59,15 +60,34 @@ pL.ARs
     
 @code_warntype PaddedMatrices.PtrArray{Tuple{36,36,7},Float64,3,40}(sp0)
     
-    aspl = Array(spL[1]);
+    aspl = Array(spL.ARs);
     apl = Array(pL.ARs);
-    aspl .≈ apl
-        
+    @test all(aspl .≈ apl)
+    asl = Array(spL.LKJ);
+    al = Array(pL.LKJ);
+    @test all(asl .≈ al)
+    asC = Array(Symmetric(spC,:L));
+    aC = Array(Symmetric(Cov,:L));
+    @test all(asC .≈ aC)
+    L
+    L_K
+    Lm = MutableLowerTriangularMatrix(Array(L))
+    ρ, ρs
+    Cov, pAR, pL = DistributionParameters.∂DynamicCovarianceMatrix(ρs, L_K, time, workspace, Val((true,true)));
+    sp, (spC, spAR, spL) = DistributionParameters.∂CovarianceMatrix(ProbabilityModels.STACK_POINTER, ρ, Lm, mtimes, Val((true,true)));
+    asC = Array(Symmetric(spC,:L));
+    aC = Array(Symmetric(Cov,:L));
+    findall(Symmetric(Array(Cov),:L) .≉  Symmetric(Array(spC),:L) )
+    cholesky(Symmetric(aC))
+
+    times, time
+    
+    size(spC)    
     Symmetric(spC, :L)
     Symmetric(Cov, :L)
 spAR
-    
-    Cov
+    size(spC)
+    size(Cov)
     function fill_block_diag(B::AbstractArray{T,3}) where {T}
         M, N, K = size(B)
         A = zeros(M*K,N*K)
@@ -77,11 +97,20 @@ spAR
         A
     end
     Lfull = kron(L, Matrix{Float64}(I, T, T)); ARfull = fill_block_diag(pL.ARs);
-    @test ( Lfull * ARfull * Lfull' .≈ Symmetric(Cov,:L) ) |> all
+
+    @test ( Lfull * ARfull * Lfull' .≈ aC ) |> all
+    @test ( Lfull * ARfull * Lfull' .≈ asC ) |> all
+    cholesky(Symmetric(aC))
+
     
     Cov = DistributionParameters.CovarianceMatrix(ρ, L, times, workspace); Cov
 #    Cov1s = PaddedMatrices.PaddedArray{Float64}(undef, (K*T,K*T)); Cov1s .= 1;
+using Statistics
 
+    # some disagreements!
+    #
+    
+    
     using ForwardDiff, StaticArrays
 
 
@@ -93,24 +122,25 @@ spAR
 
          T = promote_type(T1, T2)
          workspace = (
-             Sigfull = PaddedMatrices.PaddedArray{T}(undef, (K*nT,K*nT)),
+             Sigfull = PaddedMatrices.DynamicPaddedArray{T}(undef, (K*nT,K*nT)),
              ARs = PaddedMatrices.MutableFixedSizePaddedArray{Tuple{nT,nT,K},T}(undef),
          )
-         DistributionParameters.CovarianceMatrix(rhos, L, times, workspace)
+         DistributionParameters.DynamicCovarianceMatrix(rhos, L, times, workspace)
          
      end
-    ForwardDiff.gradient(r -> sum(Symmetric(DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{4}(ntuple(i -> r[i], Val(4))), L, times))), SVector(ρtup))
+
+    ForwardDiff.gradient(r -> sum(Symmetric(DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{7}(ntuple(i -> r[i], Val(7))), L, times))), SVector(ρtup))
 
 zd = ones(K*T,K*T) ; #.- LowerTriangular(ones(K*T,K*T));
 
     @test all(
-        ForwardDiff.gradient(r -> sum(Symmetric(zd .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{4}(ntuple(i -> r[i], Val(4))), L, times))), SVector(ρtup))
+        ForwardDiff.gradient(r -> sum(Symmetric(zd .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{7}(ntuple(i -> r[i], Val(7))), L, times),:L)), SVector(ρtup))'
         .≈
         Array(zd * pAR)
     )
     zr = randn(KT,KT); @. zr = zr + zr';
     @test all(
-        ForwardDiff.gradient(r -> sum(Symmetric(zr .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{4}(ntuple(i -> r[i], Val(4))), L, times))), SVector(ρtup))
+        ForwardDiff.gradient(r -> sum(Symmetric(zr .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{7}(ntuple(i -> r[i], Val(7))), L, times),:L)), SVector(ρtup))'
         .≈
         Array(zr * pAR)
     )
