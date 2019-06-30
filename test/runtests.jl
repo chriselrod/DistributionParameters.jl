@@ -69,11 +69,13 @@ pL.ARs
     asC = Array(Symmetric(spC,:L));
     aC = Array(Symmetric(Cov,:L));
     @test all(asC .≈ aC)
-    L
-    L_K
+#    L
+#    L_K
+    mtimes = MutableFixedSizePaddedVector(times);
     Lm = MutableLowerTriangularMatrix(Array(L))
     ρ, ρs
-    Cov, pAR, pL = DistributionParameters.∂DynamicCovarianceMatrix(ρs, L_K, time, workspace, Val((true,true)));
+
+    Cov, pAR, pL = DistributionParameters.∂DynamicCovarianceMatrix(ρ, L, times, workspace, Val((true,true)));
     sp, (spC, spAR, spL) = DistributionParameters.∂CovarianceMatrix(ProbabilityModels.STACK_POINTER, ρ, Lm, mtimes, Val((true,true)));
     asC = Array(Symmetric(spC,:L));
     aC = Array(Symmetric(Cov,:L));
@@ -131,21 +133,23 @@ using Statistics
 
     ForwardDiff.gradient(r -> sum(Symmetric(DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{7}(ntuple(i -> r[i], Val(7))), L, times))), SVector(ρtup))
 
-zd = ones(K*T,K*T) ; #.- LowerTriangular(ones(K*T,K*T));
-
-    @test all(
-        ForwardDiff.gradient(r -> sum(Symmetric(zd .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{7}(ntuple(i -> r[i], Val(7))), L, times),:L)), SVector(ρtup))'
-        .≈
-        Array(zd * pAR)
-    )
+    zd = ones(K*T,K*T) ; #.- LowerTriangular(ones(K*T,K*T));
     zr = randn(KT,KT); @. zr = zr + zr';
-    @test all(
-        ForwardDiff.gradient(r -> sum(Symmetric(zr .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{7}(ntuple(i -> r[i], Val(7))), L, times),:L)), SVector(ρtup))'
-        .≈
-        Array(zr * pAR)
-    )
 
-    @generated function StructuredMatrices.LowerTriangularMatrix(A::SMatrix{K,K,T}) where {K,T}
+    @test all(
+        ForwardDiff.gradient(r -> sum(LowerTriangular(zd .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{7}(ntuple(i -> r[i], Val(7))), L, times))), SVector(ρtup))'
+        .≈
+        Array(zd * spAR)
+    )
+    @test all(
+        ForwardDiff.gradient(r -> sum(LowerTriangular(zr .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{7}(ntuple(i -> r[i], Val(7))), L, times))), SVector(ρtup))'
+        .≈
+        Array(zr * spAR)
+    )
+zr * pAR
+zr * spAR
+
+@generated function StructuredMatrices.LowerTriangularMatrix(A::SMatrix{K,K,T}) where {K,T}
         outtup = Expr(:tuple, )
         for k ∈ 1:K
             push!(outtup.args, :(A[$k,$k]))
@@ -156,29 +160,50 @@ zd = ones(K*T,K*T) ; #.- LowerTriangular(ones(K*T,K*T));
         :(@inbounds LowerTriangularMatrix{$K,$T,$(length(outtup.args))}( $outtup ) )
     end
 
+using StaticArrays
     sL = SMatrix{K,K}(Array(L))
-    LowerTriangularMatrix(sL)
+    LowerTriangularMatrix(sL).data
     L
     L.data
     ForwardDiff.gradient(r -> sum(Symmetric(DistributionParameters.CovarianceMatrix( ρ, LowerTriangularMatrix(r), times ))), sL )
     ForwardDiff.gradient(r -> sum(UpperTriangular(DistributionParameters.CovarianceMatrix( ρ, LowerTriangularMatrix(r), times ))), sL )
+
+sL
+ForwardDiff.gradient(r -> (Lf = kron(LowerTriangular(r), Matrix{Float64}(I,T,T)); sum(Lf * ARfull * Lf')), sL)
     @test all(
-        LowerTriangular(ForwardDiff.gradient(r -> (Lf = kron(r, Matrix{Float64}(I,T,T)); sum(Lf * ARfull * Lf')), sL))
+        LowerTriangular(ForwardDiff.gradient(r -> (Lf = kron(LowerTriangular(r), Matrix{Float64}(I,T,T)); sum(Lf * ARfull * Lf')), sL))
         .≈
         Array( zd * pL )
     )
 
 
     ForwardDiff.gradient(r -> sum( Symmetric(zr .* DistributionParameters.CovarianceMatrix( ρ, LowerTriangularMatrix(r), times ))), sL )
-    @test all(
-        LowerTriangular(ForwardDiff.gradient(r -> (Lf = kron(r, Matrix{Float64}(I,T,T)); sum(zr .* (Lf * ARfull * Lf'))), sL))
+
+ForwardDiff.gradient(r -> (Lf = kron(LowerTriangular(r), Matrix{Float64}(I,T,T)); sum(zr .* (Lf * ARfull * Lf'))), sL)
+@test all(
+        LowerTriangular(ForwardDiff.gradient(r -> (Lf = kron(LowerTriangular(r), Matrix{Float64}(I,T,T)); sum(zr .* (Lf * ARfull * Lf'))), sL))
         .≈
         Array( zr * pL )
     )
-    
-    sum(ARs, dims = (1,2))
-    
+#zr
+        Array( LowerTriangular(zr) * pL )
+        Array( zr * pL )
+        LowerTriangular(ForwardDiff.gradient(r -> (Lf = kron(LowerTriangular(r), Matrix{Float64}(I,T,T)); sum((zr .* (Lf * ARfull * Lf')))), sL))
+        LowerTriangular(ForwardDiff.gradient(r -> (Lf = kron(LowerTriangular(r), Matrix{Float64}(I,T,T)); sum(LowerTriangular(zr .* (Lf * ARfull * Lf')))), sL))
 
+
+
+
+
+
+
+
+
+    sum(ARs, dims = (1,2))
+zrpL = zr * pL
+zrspL = zr * spL    
+Lm
+L_K
     Ctest = zeros(KT,KT); Ctest[1+(K-1)*T:KT, 1+(K-1)*T:KT] .= pAR.∂ARs[:,:,K];
     (Lfull * Ctest * Lfull') |> sum
 

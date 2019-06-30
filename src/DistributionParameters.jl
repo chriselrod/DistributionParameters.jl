@@ -248,6 +248,9 @@ end
 Transform a parameter vector to the constrained space.
 """
 function constrain end
+function constrain! end
+function constrained_length end
+function parameter_names end
 
 include("uniform_mapped_parameters.jl")
 include("lkj_correlation.jl")

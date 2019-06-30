@@ -30,15 +30,15 @@ const ScalarParameter{T} = Union{
 }
 
 function load_parameter(
-    first_pass, second_pass, out, ::Type{V},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    first_pass, second_pass, out, ::Type{V}, partial::Bool = false,
+    m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {M, V <: ScalarParameter}
     ## If element type of the vector is unspecified, we fill in Float64 here.
-    load_parameter(first_pass, second_pass, out, V{Float64}, partial, m, sp)
+    load_parameter(first_pass, second_pass, out, V{Float64}, partial, m, sp, logjac)
 end
 function load_parameter(
-    first_pass, second_pass, out, ::Type{RealFloat{T}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    first_pass, second_pass, out, ::Type{RealFloat{T}}, partial::Bool = false,
+    m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -50,8 +50,8 @@ function load_parameter(
     nothing
 end
 function load_parameter(
-    first_pass, second_pass, out, ::Type{PositiveFloat{T}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    first_pass, second_pass, out, ::Type{PositiveFloat{T}}, partial::Bool = false,
+    m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -60,8 +60,8 @@ function load_parameter(
         $θᵢ = $m.VectorizationBase.load($θ)
         $out = exp($θᵢ)
         $θ += 1
-        target = vadd(target, $θᵢ)
     end)
+    logjac && push!(first_pass, :(target = vadd(target, $θᵢ)))
     if partial
         push!(second_pass, :($m.VectorizationBase.store!($∂θ, one($T) + $(Symbol("###seed###", out)) * $out)))
         push!(second_pass, :($∂θ += 1))
@@ -70,7 +70,7 @@ function load_parameter(
 end
 function load_parameter(
     first_pass, second_pass, out, ::Type{LowerBoundedFloat{LB,T}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {LB,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -81,8 +81,8 @@ function load_parameter(
         $expθᵢ = exp($θᵢ)
         $out = $LB + $expθᵢ
         $θ += 1
-        target = vadd(target, $θᵢ)
     end)
+    logjac && push!(first_pass, :(target = vadd(target, $θᵢ)))
     if partial
         push!(second_pass, :($m.VectorizationBase.store!($∂θ, one($T) + $(Symbol("###seed###", out)) * $expθᵢ)))
         push!(second_pass, :($∂θ += 1))
@@ -91,7 +91,7 @@ function load_parameter(
 end
 function load_parameter(
     first_pass, second_pass, out, ::Type{UpperBoundedFloat{UB,T}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {UB,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -102,8 +102,8 @@ function load_parameter(
         $expθᵢ = exp($θᵢ)
         $out = $UB - $expθᵢ
         $θ += 1
-        target = vadd(target, $θᵢ)
     end)
+    logjac && push!(first_pass, :(target = vadd(target, $θᵢ)))
     if partial
         push!(second_pass, :($m.VectorizationBase.store!($∂θ, one($T) - $(Symbol("###seed###", out)) * $expθᵢ)))
         push!(second_pass, :($∂θ += 1))
@@ -112,7 +112,7 @@ function load_parameter(
 end
 function load_parameter(
     first_pass, second_pass, out, ::Type{BoundedFloat{LB,UB,T}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {LB,UB,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -125,8 +125,8 @@ function load_parameter(
         $∂invlogitout = $ninvlogitout * $invlogitout
         $out = $LB + $(UB-LB) * $invlogitout
         $θ += 1
-        target = vadd(target, log($∂invlogitout)) # + $(log(UB - LB)) # drop the constant term
     end)
+    logjac && push!(first_pass.args, :(target = vadd(target, log($∂invlogitout))))
     if partial
         push!(second_pass, :($m.VectorizationBase.store!($∂θ, one($T) - 2*$invlogitout + $(Symbol("###seed###", out)) * $∂invlogitout * $(T(UB - LB)))))
         push!(second_pass, :($∂θ += 1))
@@ -135,7 +135,7 @@ function load_parameter(
 end
 function load_parameter(
     first_pass, second_pass, out, ::Type{UnitFloat{T}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -147,10 +147,10 @@ function load_parameter(
         $out = one($T) - $ninvlogitout
         $∂invlogitout = $ninvlogitout * $out
         $θ += 1
-        target = vadd(target, log($∂invlogitout)) # + $(log(UB - LB)) # drop the constant term
         # target += $(T(0.5)) * log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
         # target += log($∂invlogitout) # + $(log(UB - LB)) # drop the constant term
-    end)
+          end)
+    logjac && push!(first_pass, :(target = vadd(target, log($∂invlogitout)) ))
     if partial
         # push!(second_pass, :($m.VectorizationBase.store!($∂θ, $(T(0.5)) - $out + $(T(0.5))*$(Symbol("###seed###", out)) * $∂invlogitout)))
         push!(second_pass, :($m.VectorizationBase.store!($∂θ, one($T) - 2*$out + $(Symbol("###seed###", out)) * $∂invlogitout)))
@@ -269,25 +269,43 @@ end
 
 function load_parameter(
     first_pass, second_pass, out, ::Type{V},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {M, V <: VectorParameter{M}}
     ## If element type of the vector is unspecified, we fill in Float64 here.
-    load_parameter(first_pass, second_pass, out, V{Float64}, partial, m, sp)
+    load_parameter(first_pass, second_pass, out, V{Float64}, partial, m, sp, logjac)
 end
 function load_parameter(
     first_pass, second_pass, out, ::Type{<: RealVector{M,T}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true#, constrain_only = true
 ) where {M,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
 #    if sp == nothing
 #        push!(first_pass, :($out = $m.SIMDPirates.vload(RealVector{$M,$T}, $θ); $θ += $M))
-#    else
+    #    else
+    if logjac
         push!(first_pass, quote
               #             (sp, $out) = $m.PaddedVector{$M,$T}(
               $out = $m.PtrVector{$M,$T,$M,$M}(pointer($θ))
+#              $out = PtrVector{$M,$T,$M,$M}(pointer($sp,$T))
+#              $sp = $sp + $(M*sizeof(T))
               $θ += $M
               end)
+    else#if sp isa Symbol
+        isym = gensym(:i)
+        push!(first_pass, quote
+              #             (sp, $out) = $m.PaddedVector{$M,$T}(
+#              $out = $m.PtrVector{$M,$T,$M,$M}(pointer($θ))
+              $(sp isa Symbol ? :($out = $m.PtrVector{$M,$T,$M,$M}(pointer($sp,$T))) : :($out = $m.MutableFixedSizePaddedVector{$M,$T}(undef)))
+              $(macroexpand(m, quote
+                            LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
+                            $out[$isym] = $θ[$isym]
+                            end
+                            end))
+              $(sp isa Symbol ? :($sp = $sp + $(M*sizeof(T))) : nothing)
+              $θ += $M
+              end)
+    end
 #    end
     if partial
         isym = gensym(:i)
@@ -304,14 +322,14 @@ function load_parameter(
 end
 function load_parameter(
     first_pass, second_pass, out, ::Type{<: RealVector{M}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {M}
-    load_parameter(first_pass, second_pass, out, RealVector{M,Float64}, partial, m, sp)
+    load_parameter(first_pass, second_pass, out, RealVector{M,Float64}, partial, m, sp, logjac)
 end
 
 function load_parameter(
     first_pass, second_pass, out, ::Type{<: PositiveVector{M,T}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {M,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -328,11 +346,12 @@ function load_parameter(
         isym = gensym(:i)
         temp = gensym()
         push!(first_pass, quote
-              ($sp,$out) = PtrVector{$M,$T}($sp)
+              $out = PtrVector{$M,$T,$M,$M}(pointer($sp,$T))
+              $sp = $sp + $(M*sizeof(T))
               $(macroexpand(m, quote
                             LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
                             $temp = $θ[$isym]
-                            target = vadd(target, $temp)
+                            $(logjac ? :(target = vadd(target, $temp)) : nothing)
                             $out[$isym] = exp($temp)
                             end
                             end))
@@ -372,7 +391,7 @@ function load_parameter(
                 push!(outtup.args, :($v[$w].value))
             end
         end
-        push!(first_pass, :(target = vadd(target, $sumθᵢ)))
+        logjac && push!(first_pass, :(target = vadd(target, $sumθᵢ)))
         push!(first_pass, :($θ += $M))
         push!(first_pass, :($out = @inbounds PositiveVector{$M}($outtup)))
     end
@@ -391,13 +410,13 @@ function load_parameter(
 end
 function load_parameter(
     first_pass, second_pass, out, ::Type{<: PositiveVector{M}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {M}
-    load_parameter(first_pass, second_pass, out, PositiveVector{M,Float64}, partial, m, sp)
+    load_parameter(first_pass, second_pass, out, PositiveVector{M,Float64}, partial, m, sp, logjac)
 end
 function load_parameter(
     first_pass, second_pass, out, ::Type{<: LowerBoundVector{M,LB,T}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing
+    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {M,LB,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -410,46 +429,63 @@ function load_parameter(
     rem = M & Wm1
 
     vlb = gensym(:LB)
-    if n_unmasked_loads > 0
-        v = gensym(:v)
-        push!(first_pass, :($vlb = $m.SIMDPirates.vbroadcast($V, $(T(LB)))))
-        push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ)))
-        push!(first_pass, :(target = vadd(target, $v)))
-#        push!(first_pass, :($sumθᵢ = $v))
-        push!(first_pass, :($v = $m.SIMDPirates.vadd($vlb, $m.SLEEFPirates.exp($v))))
-        outtup = Expr(:tuple,)
-        for w ∈ 1:W
-            push!(outtup.args, :($v[$w].value))
-        end
-        for n ∈ 1:n_unmasked_loads-1
+    if sp isa Symbol
+        #        push!(first_pass, :( ($sp,$out) = PtrVector{$M,$T}($sp)   ))
+        isym = gensym(:i)
+        temp = gensym()
+        push!(first_pass, quote
+              $out = PtrVector{$M,$T,$M,$M}(pointer($sp,$T))
+              $sp = $sp + $(M*sizeof(T))
+              $(macroexpand(m, quote
+                            LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
+                            $temp = $θ[$isym]
+                            $(logjac ? :(target = vadd(target, $temp)) : nothing )
+                            $out[$isym] = exp($temp) + $(T(LB))
+                            end
+                            end))
+              $θ += $M
+              end)
+    else
+        if n_unmasked_loads > 0
             v = gensym(:v)
-            push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ + $(n*W))))
+            push!(first_pass, :($vlb = $m.SIMDPirates.vbroadcast($V, $(T(LB)))))
+            push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ)))
             push!(first_pass, :(target = vadd(target, $v)))
-#            push!(first_pass, :($sumθᵢ = $m.SIMDPirates.vadd($sumθᵢ, $v)))
+            #        push!(first_pass, :($sumθᵢ = $v))
             push!(first_pass, :($v = $m.SIMDPirates.vadd($vlb, $m.SLEEFPirates.exp($v))))
+            outtup = Expr(:tuple,)
+            for w ∈ 1:W
+                push!(outtup.args, :($v[$w].value))
+            end
+            for n ∈ 1:n_unmasked_loads-1
+                v = gensym(:v)
+                push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ + $(n*W))))
+                push!(first_pass, :(target = vadd(target, $v)))
+                #            push!(first_pass, :($sumθᵢ = $m.SIMDPirates.vadd($sumθᵢ, $v)))
+                push!(first_pass, :($v = $m.SIMDPirates.vadd($vlb, $m.SLEEFPirates.exp($v))))
+                for w ∈ 1:W
+                    push!(outtup.args, :($v[$w].value))
+                end
+            end
+        end
+        L = (M + Wm1) & ~Wm1
+        if rem != 0
+            v = gensym(:v)
+            push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ + $(n_unmasked_loads*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
+            push!(first_pass, :(target = vadd(target, $v)))
+            #        if n_unmasked_loads > 0
+            #            push!(first_pass, :($sumθᵢ = $m.SIMDPirates.vadd($sumθᵢ, $v)))
+            #        else
+            #            push!(first_pass, :($sumθᵢ = $v))
+            #        end
+            push!(first_pass, :($v = $m.SIMDPirates.vadd($vlb, SLEEFPirates.exp($v))))
             for w ∈ 1:W
                 push!(outtup.args, :($v[$w].value))
             end
         end
+        #    push!(first_pass, :(target += $m.SIMDPirates.vsum($sumθᵢ)))
+        push!(first_pass, :($out = @inbounds LowerBoundVector{$M,$LB}($outtup)))
     end
-    L = (M + Wm1) & ~Wm1
-    if rem != 0
-        v = gensym(:v)
-        push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ + $(n_unmasked_loads*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
-        push!(first_pass, :(target = vadd(target, $v)))
-#        if n_unmasked_loads > 0
-#            push!(first_pass, :($sumθᵢ = $m.SIMDPirates.vadd($sumθᵢ, $v)))
-#        else
-#            push!(first_pass, :($sumθᵢ = $v))
-#        end
-        push!(first_pass, :($v = $m.SIMDPirates.vadd($vlb, SLEEFPirates.exp($v))))
-        for w ∈ 1:W
-            push!(outtup.args, :($v[$w].value))
-        end
-    end
-#    push!(first_pass, :(target += $m.SIMDPirates.vsum($sumθᵢ)))
-    push!(first_pass, :($out = @inbounds LowerBoundVector{$M,$LB}($outtup)))
-
     if partial
         i = gensym(:i)
         push!(second_pass, quote
@@ -463,10 +499,10 @@ function load_parameter(
     end
     nothing
 end
-function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector{M,LB}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing) where {M,LB}
-    load_parameter(first_pass, second_pass, out, LowerBoundVector{M,LB,Float64}, partial, m, sp)
+function load_parameter(first_pass, second_pass, out, ::Type{<: LowerBoundVector{M,LB}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true) where {M,LB}
+    load_parameter(first_pass, second_pass, out, LowerBoundVector{M,LB,Float64}, partial, m, sp, logjac)
 end
-function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector{M,UB,T}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing) where {M,UB,T}
+function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector{M,UB,T}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true) where {M,UB,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     θᵢ = gensym(:θ)
@@ -478,46 +514,63 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
     rem = M & Wm1
     L = (M + Wm1) & ~Wm1
 
-    vlb = gensym(:LB)
-    if n_unmasked_loads > 0
-        v = gensym(:v)
-        push!(first_pass, :($vub = $m.SIMDPirates.vbroadcast($V, $(T(UB)))))
-        push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ)))
-         push!(first_pass, :(target = vadd(target, $v)))
-#       push!(first_pass, :($sumθᵢ = $v))
-        push!(first_pass, :($v = $m.SIMDPirates.vsub($vub, $m.SLEEFPirates.exp($v))))
-        outtup = Expr(:tuple,)
-        for w ∈ 1:W
-            push!(outtup.args, :($v[$w].value))
-        end
-        for n ∈ 1:n_unmasked_loads-1
+    if sp isa Symbol
+        #        push!(first_pass, :( ($sp,$out) = PtrVector{$M,$T}($sp)   ))
+        isym = gensym(:i)
+        temp = gensym()
+        push!(first_pass, quote
+              $out = PtrVector{$M,$T,$M,$M}(pointer($sp,$T))
+              $sp = $sp + $(M*sizeof(T))
+              $(macroexpand(m, quote
+                            LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
+                            $temp = $θ[$isym]
+                            $(logjac ? :(target = vadd(target, $temp)) : nothing )
+                            $out[$isym] = $(T(LB)) - exp($temp)
+                            end
+                            end))
+              $θ += $M
+              end)
+    else
+        vlb = gensym(:LB)
+        if n_unmasked_loads > 0
             v = gensym(:v)
-            push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ + $(n*W))))
+            push!(first_pass, :($vub = $m.SIMDPirates.vbroadcast($V, $(T(UB)))))
+            push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ)))
             push!(first_pass, :(target = vadd(target, $v)))
-#            push!(first_pass, :($sumθᵢ = $m.SIMDPirates.vadd($sumθᵢ, $v)))
+            #       push!(first_pass, :($sumθᵢ = $v))
+            push!(first_pass, :($v = $m.SIMDPirates.vsub($vub, $m.SLEEFPirates.exp($v))))
+            outtup = Expr(:tuple,)
+            for w ∈ 1:W
+                push!(outtup.args, :($v[$w].value))
+            end
+            for n ∈ 1:n_unmasked_loads-1
+                v = gensym(:v)
+                push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ + $(n*W))))
+                logjac && push!(first_pass, :(target = vadd(target, $v)))
+                #            push!(first_pass, :($sumθᵢ = $m.SIMDPirates.vadd($sumθᵢ, $v)))
+                push!(first_pass, :($v = $m.SIMDPirates.vsub($vub, $m.SLEEFPirates.exp($v))))
+                for w ∈ 1:W
+                    push!(outtup.args, :($v[$w].value))
+                end
+            end
+        end
+        if rem != 0
+            v = gensym(:v)
+            push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ + $(n_unmasked_loads*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
+            logjac && push!(first_pass, :(target = vadd(target, $v)))
+            #        if n_unmasked_loads > 0
+            #            push!(first_pass, :($sumθᵢ = $m.SIMDPirates.vadd($sumθᵢ, $v)))
+            #        else
+            #            push!(first_pass, :($sumθᵢ = $v))
+            #        end
             push!(first_pass, :($v = $m.SIMDPirates.vsub($vub, $m.SLEEFPirates.exp($v))))
             for w ∈ 1:W
                 push!(outtup.args, :($v[$w].value))
             end
         end
-    end
-    if rem != 0
-        v = gensym(:v)
-        push!(first_pass, :($v = $m.SIMDPirates.vload($V, $θ + $(n_unmasked_loads*W), $(unsafe_trunc(VectorizationBase.mask_type(W), 2^rem-1)))))
-        push!(first_pass, :(target = vadd(target, $v)))
-#        if n_unmasked_loads > 0
-#            push!(first_pass, :($sumθᵢ = $m.SIMDPirates.vadd($sumθᵢ, $v)))
-#        else
-#            push!(first_pass, :($sumθᵢ = $v))
-#        end
-        push!(first_pass, :($v = $m.SIMDPirates.vsub($vub, $m.SLEEFPirates.exp($v))))
-        for w ∈ 1:W
-            push!(outtup.args, :($v[$w].value))
-        end
-    end
 #    push!(first_pass, :(target += $m.SIMDPirates.vsum($sumθᵢ)))
-    push!(first_pass, :($out = @inbounds UpperBoundVector{$M,$UB}($outtup)))
-
+        push!(first_pass, :($out = @inbounds UpperBoundVector{$M,$UB}($outtup)))
+    end
     if partial
         i = gensym(:i)
         push!(second_pass, quote
@@ -531,11 +584,11 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector
     end
     nothing
 end
-function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector{M,UB}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing) where {M,UB}
-    load_parameter(first_pass, second_pass, out, UpperBoundVector{M,UB,Float64}, partial, m, sp)
+function load_parameter(first_pass, second_pass, out, ::Type{<: UpperBoundVector{M,UB}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true) where {M,UB}
+    load_parameter(first_pass, second_pass, out, UpperBoundVector{M,UB,Float64}, partial, m, sp, logjac)
 end
 
-function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,LB,UB,T}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing) where {M,LB,UB,T}
+function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,LB,UB,T}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true) where {M,LB,UB,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     ninvlogitout = gensym(out)
@@ -551,7 +604,10 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
     log_jac = gensym(:log_jac)
     i = gensym(:i)
     if sp isa Symbol
-        q = quote ($sp,$out) = $m.PtrVector{$M,$T}($sp) end
+        q = quote
+            $out = $m.PtrVector{$M,$T,$M,$M}(pointer($sp, $T))
+            $sp = $sp + $(M*sizeof(T))
+        end
     else
         q = quote $out = MutableFixedSizePaddedVector{$M,$T}(undef) end
     end
@@ -572,12 +628,12 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
         push!(loop_body.args, :($invlogitout[$i] = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout[$i] = $ninvlogitout * $invlogitout[$i]))
         push!(loop_body.args, :($out[$i] = $LB + $(UB-LB) * $invlogitout[$i]))
-        push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂invlogitout[$i]))))
+        logjac && push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂invlogitout[$i]))))
     else
         push!(loop_body.args, :($invlogitout = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout = $ninvlogitout * $invlogitout))
         push!(loop_body.args, :($out[$i] = $LB + $(UB-LB) * $invlogitout))
-        push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂invlogitout))))
+        logjac && push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂invlogitout))))
     end
 
     push!(q.args, quote
@@ -603,11 +659,11 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
     end
     nothing
 end
-function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,LB,UB}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing) where {M,LB,UB}
-    load_parameter(first_pass, second_pass, out, BoundedVector{M,LB,UB,Float64}, partial, m, sp)
+function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,LB,UB}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true) where {M,LB,UB}
+    load_parameter(first_pass, second_pass, out, BoundedVector{M,LB,UB,Float64}, partial, m, sp, logjac)
 end
 
-function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing) where {M,T}
+function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true) where {M,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     ninvlogitout = gensym(out)
@@ -623,7 +679,10 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
     L = (M + Wm1) & ~Wm1
 #    log_jac = gensym(:log_jac)
     if sp isa Symbol
-        q = quote ($sp,$out) = $m.PtrVector{$M,$T}($sp) end
+        q = quote
+            $out = $m.PtrVector{$M,$T,$M,$M}(pointer($sp, $T))
+            $sp = $sp + $(M*sizeof(T))
+        end
     else
         q = quote $out = MutableFixedSizePaddedVector{$M,$T}(undef) end
     end
@@ -644,12 +703,12 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
         push!(loop_body.args, :($invlogitout[$i] = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout[$i] = $ninvlogitout * $invlogitout[$i]))
         push!(loop_body.args, :($out[$i] = $invlogitout[$i]))
-        push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂invlogitout[$i]))))
+        logjac && push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂invlogitout[$i]))))
     else
         push!(loop_body.args, :($invlogitout = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout = $ninvlogitout * $invlogitout))
         push!(loop_body.args, :($out[$i] = $invlogitout))
-        push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂invlogitout))))
+        logjac && push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂invlogitout))))
     end
 
     push!(q.args, quote
@@ -676,8 +735,8 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M,T}}
     end
     nothing
 end
-function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing) where {M}
-    load_parameter(first_pass, second_pass, out, UnitVector{M,Float64}, partial, m, sp)
+function load_parameter(first_pass, second_pass, out, ::Type{<: UnitVector{M}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true) where {M}
+    load_parameter(first_pass, second_pass, out, UnitVector{M,Float64}, partial, m, sp, logjac)
 end
 
 
@@ -794,10 +853,11 @@ end
 end
 
 
-function load_parameter(first_pass, second_pass, out, ::Type{<: RealMatrix{M,N,T}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing) where {M,N,T}
+function load_parameter(first_pass, second_pass, out, ::Type{<: RealMatrix{M,N,T}}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true) where {M,N,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
-    push!(first_pass, :($out = $m.SIMDPirates.vload(RealMatrix{M,N,T}, $θ); $θ += $(M*N)))
+    push!(first_pass, :($out = $m.PaddedMatrices.PtrMatrix{$M,$N,$T,$M}(pointer($θ)) ))# $m.SIMDPirates.vload(RealMatrix{M,N,T}, $θ); $θ += $(M*N)))
+    push!(first_pass, :($θ += $(M*N)))
     if partial
         i = gensym(:i)
         push!(second_pass, quote
@@ -811,9 +871,9 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: RealMatrix{M,N,T
     end
     nothing
 end
-function load_parameter(first_pass, second_pass, out, ::Type{A}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing) where {M, N, A <: MatrixParameter{M,N}}
+function load_parameter(first_pass, second_pass, out, ::Type{A}, partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true) where {M, N, A <: MatrixParameter{M,N}}
     ## If element type of the vector is unspecified, we fill in Float64 here.
-    load_parameter(first_pass, second_pass, out, A{Float64}, partial)
+    load_parameter(first_pass, second_pass, out, A{Float64}, partial, m, sp, logjac)
 end
 
 
@@ -884,6 +944,21 @@ bounds(::Type{BoundedParameter{T,LB,UB}}) where {T,LB,UB} = (LB, UB)
 
 
 PaddedMatrices.type_length(::Type{<:ScalarParameter}) = 1
+
+
+strip_hashtags(s::String) = s[1+last(findlast("#",s)):end]
+strip_hashtags(s::Symbol) = strip_hashtags(string(s))
+parameter_names(::Type{<:ScalarParameter}, s::Symbol) = [strip_hashtags(s)]
+function parameter_names(::Type{<: VectorParameter{M}}, s::Symbol) where {M}
+    ss = strip_hashtags(s)
+    ["$ss[$m]" for m ∈ 1:M]::Vector{String}
+end
+function parameter_names(::Type{<: MatrixParameter{M,N}}, s::Symbol) where {M,N}
+    ss = strip_hashtags(s)
+    vec(["$ss[$m,$n]" for m ∈ 1:M, n ∈ 1:N])
+end
+
+
 # type_length(::Type{<:PaddedMatrices.AbstractFixedSizePaddedVector{N}}) where {N} = N
 # type_length(::Type{<:PaddedMatrices.AbstractConstantFixedSizePaddedMatrix{M,N}}) where {M,N} = M*N
 
@@ -945,3 +1020,7 @@ PaddedMatrices.type_length(::Type{<:ScalarParameter}) = 1
 #         return complete_type(T2)
 #     end
 # end
+
+
+
+
