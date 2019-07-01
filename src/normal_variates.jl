@@ -906,6 +906,69 @@ end
         ConstantFixedSizePaddedVector{$K,$T,$KL,$KL}( $outtup )'
     end
 end
+@generated function Base.:*(
+    sp::StackPointer,
+    C::AbstractMatrix{T},
+    adj::Covariance_LAR_AR_Adjoint{K, nT, T, nTP}
+) where {K, nT, T, nTP}
+    # C is a DynamicCovarianceMatrix
+    Wm1 = VectorizationBase.pick_vector_width(T)-1 
+    KL = (K+Wm1) & ~Wm1
+#    outtup = Expr(:tuple, [Expr(:call,:*,2,Symbol(:κ_,k)) for k ∈ 1:K]..., [zero(T) for k ∈ K+1:KL]...)
+#    outtup = Expr(:tuple, [Symbol(:κ_,k) for k ∈ 1:K]..., [zero(T) for k ∈ K+1:KL]...)
+    quote
+        $(Expr(:meta,:inline))
+        # Calculate all in 1 pass?
+        # ∂C∂ρ = MutableFixedSizePaddedVector{K,T}(undef)
+        # Cstride = stride(C,2)
+        L = adj.LKJ
+        ∂ARs = adj.∂ARs
+#        println("Reverse pass, partial cov:")
+#        display(C)
+#        println("Reverse pass, using ∂ARs:")
+#        display(∂ARs)
+#        println("Reverse pass, L:")
+#        display(L)
+#        @show Array(∂ARs)[1:6,1:6,:]
+
+        Base.Cartesian.@nexprs $K j -> κ_j = zero($T)
+        @inbounds begin
+            Base.Cartesian.@nexprs $K kc -> begin
+                # Diagonal block
+#                kr = kc-1
+                Base.Cartesian.@nexprs kc j -> l_j = L[kc,j]^2
+                ccol = crow = $nT*(kc-1)
+                for tc ∈ 1:$nT
+                    tco = tc + ccol
+                    for tr ∈ tc+1:$nT
+                        cij = C[tr + crow, tco]
+                        Base.Cartesian.@nexprs kc j -> begin
+                            κ_j = Base.FastMath.add_fast(Base.FastMath.mul_fast(cij,l_j,∂ARs[tr,tc,j]), κ_j)
+                        end
+                    end
+                end
+
+                for kr ∈ kc:$(K-1)
+                    Base.Cartesian.@nexprs kc j -> l_j = L[kc,j]*L[kr+1,j]
+                    crow = $nT*kr; ccol = $nT*(kc-1)
+                    for tc ∈ 1:$nT
+                        tco = tc + ccol
+                        for tr ∈ 1:$nT
+                            cij = C[tr + crow, tco]
+                            Base.Cartesian.@nexprs kc j -> begin
+                                κ_j = Base.FastMath.add_fast(Base.FastMath.mul_fast(cij,l_j,∂ARs[tr,tc,j]), κ_j)
+                            end
+                        end
+                    end
+                end
+            end
+            b = PaddedMatrices.PtrVector{$K,$T,$KL,$KL}(pointer(sp,$T))
+            Base.Cartesian.@nexprs $K k -> b[k] = κ_k
+        end
+        #        ConstantFixedSizePaddedVector{$K,$T,$KL,$KL}( $outtup )'
+        sp + $(KL*sizeof(T)), b'
+    end
+end
 
 #=
 
