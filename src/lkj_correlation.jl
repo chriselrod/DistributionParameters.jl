@@ -387,7 +387,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
 
 
         ∂logdetsym = gensym(:∂logdet)
-        bin2M = binomial2(M)
+        bin2M = binomial2(M+1)
         push!(q.args, :($∂logdetsym = PtrVector{$bin2M,$T,$bin2M,$bin2M}(pointer(sp, $T))))
         push!(q.args, :(sp += $(sizeof(T)*bin2M)))
         i = 0
@@ -427,6 +427,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
                 end
             end
         end
+#        push!(q.args, :(sp += 800))
     # Return quote, followed by 4 outputs of the function
     # four outputs are:
     # 1. constrained
@@ -596,7 +597,7 @@ function load_parameter(
     end
 
     push!(q.args, quote
-        ProbabilityModels.DistributionParameters.LoopVectorization.@vvectorize $T for $i ∈ 1:$L
+        ProbabilityModels.DistributionParameters.LoopVectorization.@vvectorize $T for $i ∈ 1:$N
             $loop_body
         end
     end)
@@ -728,7 +729,7 @@ function load_parameter(
     end
 
     vloop = macroexpand(m, quote
-        LoopVectorization.@vvectorize $T for $i ∈ 1:$L
+        LoopVectorization.@vvectorize $T for $i ∈ 1:$N
             $loop_body
         end
                         end)
@@ -771,7 +772,7 @@ function load_parameter(
             # println("∂invlogitout")
               # println($∂invlogitout)
               $(macroexpand(m, quote
-                            LoopVectorization.@vvectorize for $i ∈ 1:$L
+                            LoopVectorization.@vvectorize for $i ∈ 1:$N
                             # $∂θ[$i] = $(T(0.5)) - ($invlogitout)[$i] + (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i]
                             $∂θ[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
                             # $∂θ[$i] = one($T) - $(T(2)) * ( ($invlogitout)[$i] - ($seedlkj)[$i] * ($∂invlogitout)[$i] )

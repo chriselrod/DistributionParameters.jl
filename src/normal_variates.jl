@@ -386,17 +386,17 @@ end
     mdv::MissingDataVectorAdjoint{T,S,M}
 ) where {K,T,S,M,V<:PaddedMatrices.AbstractMutableFixedSizePaddedVector{S,T}}
     Wm1 = VectorizationBase.pick_vector_width(M,T) - 1
-    MR = (M + Wm1) & ~Wm1
-    total_length = K*MR
+#    MR = (M + Wm1) & ~Wm1
+    total_length = (K*M + Wm1) & + ~Wm1
     quote
         # we zero the used data in a single loop.
-        zero_out = PtrVector{$total_length,$T}(pointer(sp, $T))
+        zero_out = PtrVector{$total_length,$T,$total_length,$total_length}(pointer(sp, $T))
         @inbounds @simd ivdep for i ∈ 1:$total_length
             zero_out[i] = zero($T)
         end
         
         Base.Cartesian.@nexprs $K k -> begin
-            sp, b_k = PtrVector{$M,$T,$MR,$MR}(sp)
+            b_k = PtrVector{$M,$T,$M,$M}(pointer(sp,$T) + $(sizeof(T)*M) * (k-1))
             a_k = a[k]
         end
         inds = mdv.mdv.indices
@@ -404,7 +404,7 @@ end
             i = inds[s]
             Base.Cartesian.@nexprs $K k -> b_k[i] = a_k[s]
         end
-        sp, (Base.Cartesian.@ntuple $K b)
+        sp + $(sizeof(T)*M*K), (Base.Cartesian.@ntuple $K b)
     end
 end
 
