@@ -738,23 +738,10 @@ end
     # We want it to be a multiple of 8, and we don't want nTl bleeding over the edge
     KTR = ( KT + nTl - nT + Wm1 ) & ~Wm1
     T_size = sizeof(T)
-    quote
-        # nT = length(times) + 1
-        # K = size(L,1)
-#       U = missing.unique_patterns
-#        ARs = workspace.ARs
-        #        ∂ARs = workspace.∂ARs
-        sp,  ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3,$nTl}(sp)
-        sp, ∂ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3,$nTl}(sp)
-        #        @inbounds @fastmath for k ∈ 1:$K
-        ptr_time = pointer(times)
-        ptr_ARs = pointer(ARs)
-        ptr_∂ARs = pointer(∂ARs)
-        @inbounds for k ∈ 1:$K
-            ρ = rhos[k]
-            # We want to use Base.log, and not fastmath log.
-            logρ = $(T == Float64 ? :(ccall(:log,Float64,(Float64,),ρ))  :  :(Base.log(ρ)))
-            $(SIMD ? quote
+#    sym = false
+    sym = true
+    ARquote = if SIMD && sym
+        quote
             vρ = SIMDPirates.vbroadcast($V, ρ)
             vlogρ = SIMDPirates.vbroadcast($V, logρ)
             for tcouter ∈ 0:$((nTl>>Wshift)-1)
@@ -781,7 +768,40 @@ end
                     end
                 end
               end
-              end : quote
+        end
+    elseif SIMD
+        quote
+            vρ = SIMDPirates.vbroadcast($V, ρ)
+            vlogρ = SIMDPirates.vbroadcast($V, logρ)
+            @inbounds for c ∈ 0:$(nT-1)
+                #                time_c = times[c+1]
+                #                offset = (k-1)*$(nTl*nT) + c*$nTl
+                offset = (k-1)*$(T_size*nTl*nT) + c*$(T_size*nTl)
+                vtime_tc = SIMDPirates.vbroadcast($V, times[c+1])
+                for r ∈ 0:$((nTl >> Wshift)-1)
+                    vtimes_tr = SIMDPirates.vload($V, ptr_time + r * $(T_size*W))
+                    vδt = SIMDPirates.vabs(SIMDPirates.vsub(vtimes_tr, vtime_tc))
+                    vδtm1 = SIMDPirates.vsub(vδt, SIMDPirates.vbroadcast($V,one($T)))
+                    vρt = SLEEFPirates.exp(SIMDPirates.vmul(vδtm1, vlogρ))
+                    AR_offset = offset + r*$(W*T_size)
+
+                    SIMDPirates.vstore!(ptr_ARs + AR_offset,
+                                        SIMDPirates.vmul(vρ,vρt))
+                    SIMDPirates.vstore!(ptr_∂ARs + AR_offset,
+                                        SIMDPirates.vmul(vδt,vρt))
+                end
+#                LoopVectorization.@vvectorize for r ∈ 1:$nTl
+#                    times_r = times[r]
+#                    δt = SIMDPirates.vabs(times_r - time_c)
+#                    δtm1 = δt - 1
+#                    ρtm1 = SLEEFPirates.exp(δtm1 * logρ)
+#                    ARs[r + offset] = ρtm1 * ρ
+#                    ∂ARs[r + offset] = ρtm1 * δt
+#                end
+            end
+        end
+    else
+        quote
             for tc ∈ 1:$nT
                 for tr ∈ 1:tc-1
                     ARs[tr,tc,k] = ARs[tc,tr,k]
@@ -798,9 +818,30 @@ end
                     ARs[tr,tc,k] = ρ*rhot
                     ∂ARs[tr,tc,k] = deltatimes*rhot
                 end
-              end
-              end )
+            end
         end
+    end
+        
+    quote
+        # nT = length(times) + 1
+        # K = size(L,1)
+#       U = missing.unique_patterns
+#        ARs = workspace.ARs
+        #        ∂ARs = workspace.∂ARs
+        sp,  ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3,$nTl}(sp)
+        sp, ∂ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3,$nTl}(sp)
+        #        @inbounds @fastmath for k ∈ 1:$K
+        ptr_time = pointer(times)
+        ptr_ARs = pointer(ARs)
+        ptr_∂ARs = pointer(∂ARs)
+#        @time for i ∈ 1:100000
+        @inbounds for k ∈ 1:$K
+            ρ = rhos[k]
+            # We want to use Base.log, and not fastmath log.
+            logρ = $(T == Float64 ? :(ccall(:log,Float64,(Float64,),ρ))  :  :(Base.log(ρ)))
+            $ARquote
+        end
+#        end
         sp, Sigfull = PtrFixedSizeCovarianceMatrix{$KT,$T}(sp)
         # ∂Sig∂L
         @inbounds begin
