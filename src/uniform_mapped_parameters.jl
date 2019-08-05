@@ -5,7 +5,7 @@ const RealVector{M,B,T,L} = RealArray{Tuple{M},B,T,1,L,L}
 const RealMatrix{M,N,B,T,L} = RealArray{Tuple{M,N},B,T,2,M,L}
 
 
-function load_parameter(
+function load_parameter!(
     first_pass, second_pass, out, ::Type{RealFloat}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
 )
@@ -18,7 +18,7 @@ function load_parameter(
 end
 
 
-function load_parameter(
+function load_parameter!(
     first_pass, second_pass, out, ::Type{RealFloat{BT}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
 ) where {BT}
@@ -38,19 +38,21 @@ function load_parameter(
 end
 
 
-function load_parameter(
+function load_parameter!(
     first_pass, second_pass, out, ::Type{RealFloat{B,T}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
 ) where {T, B}
+    shape = Array{Int}(undef)
+    shape[] = 1
     load_transformations!(
-        first_pass, second_pass, B, out, Array{Int}(undef),
+        first_pass, second_pass, B, out, shape,
         partial, logjac, sptr,
         m, Symbol("##θparameter##"), Symbol("##∂θparameter##"),
         copyexport
     )    
 end
 
-function load_parameter(
+function load_parameter!(
     first_pass, second_pass, out, ::Type{RealArray{S}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
 ) where {S}
@@ -63,7 +65,7 @@ function load_parameter(
 end
 
 
-function load_parameter(
+function load_parameter!(
     first_pass, second_pass, out, ::Type{RealArray{S,BT}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
 ) where {BT}
@@ -82,7 +84,7 @@ function load_parameter(
     )
 end
 
-function load_parameter(
+function load_parameter!y(
     first_pass, second_pass, out, ::Type{RealArray{S,B,T}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
 ) where {S,B,T}

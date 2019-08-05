@@ -69,7 +69,7 @@ function load_transformations!(
     scalar = iszero(N)
     M = prod(shape)
 
-    plincr = scalar ? 1 : M
+#    plincr = scalar ? 1 : M
     outinit = if sptr isa Symbol
         quote
             $out = $m.PtrArray{$(Tuple{shape...}),$T,$N,$(first(shape)),$M,true}(pointer($sptr, $T))
@@ -81,6 +81,7 @@ function load_transformations!(
         end
     end
     seedout = Symbol("###seed###", out)
+    loopmacro = Symbol("@vvectorize")
     if isunbounded(b)
         if scalar
             push!(fp, :($out = $m.VectorizationBase.load($θ)))
@@ -104,11 +105,16 @@ function load_transformations!(
                 push!(sp, :($m.VectorizationBase.store!($∂θ, $seedout)))
             else
                 isym = gensym(:i)
-                storeloop = quote
-                    LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
-                        $∂θ[$isym] = $seedout[$isym]
-                    end
-                end
+                storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
+                                 Expr(:for, Expr(:(=), isym, pstorerange),
+                                      :($∂θ[$isym] = $seedout[$isym])
+                                      )
+                                 )
+#                storeloop = quote
+#                   LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
+#                        $∂θ[$isym] = $seedout[$isym]
+#                    end
+#                end
                 push!(sp, macroexpand(m, storeloop))
             end
         end
@@ -145,11 +151,16 @@ function load_transformations!(
                 push!(sp, :($m.VectorizationBase.store!($∂θ, muladd($seedout, $out, one($T)))))
             else
                 isym = gensym(:i)
-                storeloop = quote
-                    LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
-                        $∂θ[$isym] = SIMDPirates.vmuladd($seedout[$isym], $out[$isym], one($T))
-                    end
-                end
+                storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
+                                 Expr(:for, Expr(:(=), isym, pstorerange),
+                                      :($∂θ[$isym] = SIMDPirates.vmuladd($seedout[$isym], $out[$isym], one($T)))
+                                      )
+                                 )
+#                storeloop = quote
+#                    LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
+#                        $∂θ[$isym] = SIMDPirates.vmuladd($seedout[$isym], $out[$isym], one($T))
+#                    end
+#                end
                 push!(sp, macroexpand(m, storeloop))
             end
         end
@@ -185,11 +196,11 @@ function load_transformations!(
                 push!(sp, :($m.VectorizationBase.store!($∂θ, SIMDPirates.vfnmadd($seedout, $out, one($T)))))
             else
                 isym = gensym(:i)
-                storeloop = quote
-                    LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
-                        $∂θ[$isym] = SIMDPirates.vfnmadd($seedout[$isym], $out[$isym], one($T))
-                    end
-                end
+                storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
+                                 Expr(:for, Expr(:(=), isym, pstorerange),
+                                      :($∂θ[$isym] = SIMDPirates.vfnmadd($seedout[$isym], $out[$isym], one($T)))
+                                      )
+                                 )
                 push!(sp, macroexpand(m, storeloop))
             end
         end
@@ -213,19 +224,19 @@ function load_transformations!(
             if partial
                 ∂q = quote
                     VectorizationBase.store!($∂θ, @fastmath one($T) - $(T(2)) * $invlogit +
-                                             $(Symbol("###seed###", out)) * $(scale == one(T) ? ∂invlogit : :($scale * $∂invlogit)))
+                                             $seedout * $(scale == one(T) ? ∂invlogit : :($scale * $∂invlogit)))
                 end
-                push!(sp, macroexpand(m, ∂q))
+                push!(sp, macroexpand(m, ∂q)) #Expand the fastmath? Why not Base.FastMath.add_fast / mul_fast directly?
             end
         else
             isym = gensym(:i)
             if partial
                 invlogitinits = if sp isa Symbol
                     quote
-                        $invlogit = $m.PtrVector{$M,$T}(pointer($sp,$T))
-                        $sp += $(M*sizeof(T))
-                        $∂invlogit = $m.PtrVector{$M,$T}(pointer($sp,$T))
-                        $sp += $(M*sizeof(T))
+                        $invlogit = $m.PtrVector{$M,$T}(pointer($sptr,$T))
+                        $sptr += $(M*sizeof(T))
+                        $∂invlogit = $m.PtrVector{$M,$T}(pointer($sptr,$T))
+                        $sptr += $(M*sizeof(T))
                     end
                 else
                     quote
@@ -253,13 +264,15 @@ function load_transformations!(
                     end
                 end
                 push!(fp, macroexpand(m, loop_quote))
-                ∂loop_quote = quote
-                    LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
-                        $∂θ[$isym] = one($T) - $(T(2)) * $invlogit[$isym] +
-                            ($(Symbol("###seed###", out)))[$isym] * $(scale == one(T) ? :($∂invlogit[$isym]) : :($∂invlogit[$isym] * $scale))
-                    end
-                end
-                push!(sp, macroexpand(m, ∂loop_quote))
+                storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
+                                 Expr(:for, Expr(:(=), isym, pstorerange),
+                                      :($∂θ[$isym] = one($T) - $(T(2)) * $invlogit[$isym] +
+                                        ($seedout)[$isym] *
+                                        $(scale == one(T) ? :($∂invlogit[$isym]) : :($∂invlogit[$isym] * $scale))
+                                        )
+                                      )
+                                 )
+                push!(sp, macroexpand(m, storeloop))
             else
                 loop_body = quote
                     $ninvlogit = one($T) / (one($T) + $m.SLEEFPirates.exp($θ[$isym]))
@@ -278,8 +291,8 @@ function load_transformations!(
             end
         end
     end
-    push!(fp, :($θ += $plincr))
-    partial && push!(sp, :($∂θ += $plincr))
+    push!(fp, :($θ += $M))
+    partial && push!(sp, :($∂θ += $M))
 end
 
 #=
