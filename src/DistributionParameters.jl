@@ -252,9 +252,11 @@ function constrain! end
 function constrained_length end
 function parameter_names end
 
+include("constraints.jl")
 include("uniform_mapped_parameters.jl")
 include("lkj_correlation.jl")
 include("normal_variates.jl")
+include("missing_data.jl")
 # include("autoregressive_matrix.jl")
 
 # @support_stack_pointer load_parameter

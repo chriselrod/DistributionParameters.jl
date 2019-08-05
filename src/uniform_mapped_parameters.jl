@@ -1,4 +1,102 @@
 
+struct RealFloat{B,T} <: Real end
+struct RealArray{S,B,T,N,P,L} <: PaddedMatrices.AbstractMutableFixedSizePaddedArray{S,T,N,P,L} end
+const RealVector{M,B,T,L} = RealArray{Tuple{M},B,T,1,L,L}
+const RealMatrix{M,N,B,T,L} = RealArray{Tuple{M,N},B,T,2,M,L}
+
+
+function load_parameter(
+    first_pass, second_pass, out, ::Type{RealFloat}, partial::Bool = false,
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+)
+    T = Float64
+    B = Bounds(typemin(T), typemax(T))
+    
+    load_parameter(
+        first_pass, second_pass, out, RealFloat{B,T}, partial, m, sptr, logjac, copyexport
+    )
+end
+
+
+function load_parameter(
+    first_pass, second_pass, out, ::Type{RealFloat{BT}}, partial::Bool = false,
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+) where {BT}
+    if BT isa Bounds
+        B = BT
+        T = typeof(BT.lb)
+    elseif BT isa DataType
+        T = BT
+        B = Bounds(typemin(BT), typemax(BT))
+    else
+        throw("RealFloat parameter $BT not recognized.") 
+    end
+
+    load_parameter(
+        first_pass, second_pass, out, RealFloat{B,T}, partial, m, sptr, logjac, copyexport
+    )
+end
+
+
+function load_parameter(
+    first_pass, second_pass, out, ::Type{RealFloat{B,T}}, partial::Bool = false,
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+) where {T, B}
+    load_transformations!(
+        first_pass, second_pass, B, out, Array{Int}(undef),
+        partial, logjac, sptr,
+        m, Symbol("##θparameter##"), Symbol("##∂θparameter##"),
+        copyexport
+    )    
+end
+
+function load_parameter(
+    first_pass, second_pass, out, ::Type{RealArray{S}}, partial::Bool = false,
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+) where {S}
+    T = Float64
+    B = Bounds(typemin(T), typemax(T))
+    
+    load_parameter(
+        first_pass, second_pass, out, RealArray{S,B,T}, partial, m, sptr, logjac, copyexport
+    )
+end
+
+
+function load_parameter(
+    first_pass, second_pass, out, ::Type{RealArray{S,BT}}, partial::Bool = false,
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+) where {BT}
+    if BT isa Bounds
+        B = BT
+        T = typeof(BT.lb)
+    elseif BT isa DataType
+        T = BT
+        B = Bounds(typemin(BT), typemax(BT))
+    else
+        throw("RealFloat parameter $BT not recognized.") 
+    end
+
+    load_parameter(
+        first_pass, second_pass, out, RealArray{S,B,T}, partial, m, sptr, logjac, copyexport
+    )
+end
+
+function load_parameter(
+    first_pass, second_pass, out, ::Type{RealArray{S,B,T}}, partial::Bool = false,
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+) where {S,B,T}
+    load_transformations!(
+        first_pass, second_pass, B, out, Int[S.parameters...],
+        partial, logjac, sptr,
+        m, Symbol("##θparameter##"), Symbol("##∂θparameter##"),
+        copyexport
+    )    
+end
+
+
+#=
+
 @inline unwrap(x) = x
 @inline unwrap(d::LinearAlgebra.Diagonal) = d.diag
 
@@ -170,7 +268,7 @@ struct LowerBoundVector{M,LB,T,P,L} <: PaddedMatrices.AbstractConstantFixedSizeP
     data::NTuple{L,T}
 end
 
-struct UpperBoundVector{M,UB,T,P,L} <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{M,T,P,L}
+Struct Upperboundvector{M,Ub,T,P,L} <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{M,T,P,L}
     data::NTuple{L,T}
 end
 struct BoundedVector{M,LB,UB,T,P,L} <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{M,T,P,L}
@@ -650,7 +748,7 @@ function load_parameter(first_pass, second_pass, out, ::Type{<: BoundedVector{M,
     if partial
         push!(second_pass, quote
               $(macroexpand(m, quote
-                            LoopVectorization.@vvectorize $T for i ∈ 1:$M
+                            LoopVectorization.@vvectorize $T for $i ∈ 1:$M
                             $∂θ[$i] = one($T) - 2($invlogitout)[$i] + ($(Symbol("###seed###", out)))[$i] * ($∂invlogitout)[$i] * $(T(UB - LB))
                             end
                             end))
@@ -941,7 +1039,7 @@ bounds(::Any) = (-Inf,Inf)
 lower_bound(::Type{LowerBoundedParameter{T,LB}}) where {T,LB} = LB
 upper_bound(::Type{UpperBoundedParameter{T,UB}}) where {T,UB} = UB
 bounds(::Type{BoundedParameter{T,LB,UB}}) where {T,LB,UB} = (LB, UB)
-
+=#
 
 PaddedMatrices.type_length(::Type{<:ScalarParameter}) = 1
 
