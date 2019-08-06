@@ -23,16 +23,23 @@ struct Bounds{T <: Real}
 end
 
 Bounds() = Bounds(-Inf,Inf)
+Bounds(lb::Integer, ub::Integer) = Bounds(Float64(lb), Float64(ub))
+Bounds(lb::T, ub::T) where {T<:Union{Float32,Float64}} = Bounds{T}(lb, ub)
+function Bounds(lb::T1, ub::T2) where {T1,T2}
+    T = promote_type(T1,T2)
+    Bounds{T}(T(lb), T(ub))
+end
 
-ismin(x::T) = ((x == typemin(T)) | (x == -floatmin(T)))
-ismax(x::T) = ((x == typemax(T)) | (x ==  floatmin(T)))
+
+ismin(x::T) where {T} = ((x == typemin(T)) | (x == -floatmin(T)))
+ismax(x::T) where {T} = ((x == typemax(T)) | (x ==  floatmin(T)))
 function isunbounded(b::Bounds{T}) where {T}
     ismin(b.lb) & ismax(b.ub)
 end
-function islowerbound(b::Bounds{T}) where {T}
+function islowerbounded(b::Bounds{T}) where {T}
     (!ismin(b.lb)) & ismax(b.ub)
 end
-function isupperbound(b::Bounds{T}) where {T}
+function isupperbounded(b::Bounds{T}) where {T}
     ismin(b.lb) & (!ismax(b.ub))
 end
 function isbounded(b::Bounds{T}) where {T}
@@ -60,7 +67,7 @@ M == param_length == 0 => scalar
 """
 function load_transformations!(
     fp, sp, b::Bounds{T}, out, shape::Vector{Int},
-    partial::Bool = true, logjac::Bool = true, sptr,
+    partial::Bool, logjac::Bool, sptr,
     m::Module = DistributionParameters,
     θ = Symbol("##θparameter##"), ∂θ = Symbol("##∂θparameter##"),
     copyexport::Bool = false
@@ -70,7 +77,9 @@ function load_transformations!(
     M = prod(shape)
 
 #    plincr = scalar ? 1 : M
-    outinit = if sptr isa Symbol
+    outinit = if scalar
+        quote end
+    elseif sptr isa Symbol
         quote
             $out = $m.PtrArray{$(Tuple{shape...}),$T,$N,$(first(shape)),$M,true}(pointer($sptr, $T))
             $sptr += $(sizeof(T)*M)
@@ -81,7 +90,7 @@ function load_transformations!(
         end
     end
     seedout = Symbol("###seed###", out)
-    loopmacro = Symbol("@vvectorize")
+#    loopmacro = Symbol("@vvectorize")
     if isunbounded(b)
         if scalar
             push!(fp, :($out = $m.VectorizationBase.load($θ)))
@@ -105,11 +114,17 @@ function load_transformations!(
                 push!(sp, :($m.VectorizationBase.store!($∂θ, $seedout)))
             else
                 isym = gensym(:i)
-                storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
-                                 Expr(:for, Expr(:(=), isym, pstorerange),
-                                      :($∂θ[$isym] = $seedout[$isym])
-                                      )
-                                 )
+ #               storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
+ #                                Expr(:for, Expr(:(=), isym, 1:M),
+ #                                     :($∂θ[$isym] = $seedout[$isym])
+ #                                     )
+ #                                )
+                storeloop = quote
+                    LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
+                        $∂θ[$isym] = $seedout[$isym]
+                    end
+                end
+#                println(storeloop)
 #                storeloop = quote
 #                   LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
 #                        $∂θ[$isym] = $seedout[$isym]
@@ -127,14 +142,14 @@ function load_transformations!(
                 $logout = $m.VectorizationBase.load($θ)
                 $out = $outdef
             end
-            logjac && push!(load_expr, :(target = $m.SIMDPirates.vadd(target, $logout)))
+            logjac && push!(load_expr.args, :(target = $m.SIMDPirates.vadd(target, $logout)))
         else
             isym = gensym(:i)
             loopbody = quote
                 $logout = $θ[$isym]
                 $out[$isym] = $outdef
             end
-            logjac && push!(loopbody, :(target = SIMDPirates.vadd(target, $logout)))
+            logjac && push!(loopbody.args, :(target = SIMDPirates.vadd(target, $logout)))
             loop_quote = quote
                 LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
                     $loopbody
@@ -145,22 +160,22 @@ function load_transformations!(
                 $(macroexpand(m, loop_quote))
             end
         end
-        push!(fp, loop_expr)
+        push!(fp, load_expr)
         if partial
             if scalar
                 push!(sp, :($m.VectorizationBase.store!($∂θ, muladd($seedout, $out, one($T)))))
             else
                 isym = gensym(:i)
-                storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
-                                 Expr(:for, Expr(:(=), isym, pstorerange),
-                                      :($∂θ[$isym] = SIMDPirates.vmuladd($seedout[$isym], $out[$isym], one($T)))
-                                      )
-                                 )
-#                storeloop = quote
-#                    LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
-#                        $∂θ[$isym] = SIMDPirates.vmuladd($seedout[$isym], $out[$isym], one($T))
-#                    end
-#                end
+#                storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
+#                                 Expr(:for, Expr(:(=), isym, 1:M),
+#                                      :($∂θ[$isym] = SIMDPirates.vmuladd($seedout[$isym], $out[$isym], one($T)))
+#                                      )
+#                                 )
+                storeloop = quote
+                    LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
+                        $∂θ[$isym] = SIMDPirates.vmuladd($seedout[$isym], $out[$isym], one($T))
+                    end
+                end
                 push!(sp, macroexpand(m, storeloop))
             end
         end
@@ -168,18 +183,18 @@ function load_transformations!(
         logout = gensym(Symbol(:log_, out))
         outdef = (b.ub == zero(T)) ? :(- exp($logout)) : :($(T(b.ub)) - exp($logout))
         if scalar
-           n load_expr = quote
+            load_expr = quote
                 $logout = $m.VectorizationBase.load($θ)
                 $out = $outdef
             end
-            logjac && push!(load_expr, :(target = $m.SIMDPirates.vadd(target, $logout)))
+            logjac && push!(load_expr.args, :(target = $m.SIMDPirates.vadd(target, $logout)))
         else
             isym = gensym(:i)
             loopbody = quote
                 $logout = $θ[$isym]
                 $out[$isym] = $outdef
             end
-            logjac && push!(loopbody, :(target = SIMDPirates.vadd(target, $logout)))
+            logjac && push!(loopbody.args, :(target = SIMDPirates.vadd(target, $logout)))
             loop_quote = quote
                 LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
                     $loopbody
@@ -196,11 +211,16 @@ function load_transformations!(
                 push!(sp, :($m.VectorizationBase.store!($∂θ, SIMDPirates.vfnmadd($seedout, $out, one($T)))))
             else
                 isym = gensym(:i)
-                storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
-                                 Expr(:for, Expr(:(=), isym, pstorerange),
-                                      :($∂θ[$isym] = SIMDPirates.vfnmadd($seedout[$isym], $out[$isym], one($T)))
-                                      )
-                                 )
+#                storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
+#                                 Expr(:for, Expr(:(=), isym, 1:M),
+#                                      :($∂θ[$isym] = SIMDPirates.vfnmadd($seedout[$isym], $out[$isym], one($T)))
+#                                      )
+#                                 )
+                storeloop = quote
+                    LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
+                        $∂θ[$isym] = SIMDPirates.vfnmadd($seedout[$isym], $out[$isym], one($T))
+                    end
+                end
                 push!(sp, macroexpand(m, storeloop))
             end
         end
@@ -233,6 +253,7 @@ function load_transformations!(
             if partial
                 invlogitinits = if sp isa Symbol
                     quote
+                        $outinit
                         $invlogit = $m.PtrVector{$M,$T}(pointer($sptr,$T))
                         $sptr += $(M*sizeof(T))
                         $∂invlogit = $m.PtrVector{$M,$T}(pointer($sptr,$T))
@@ -240,8 +261,9 @@ function load_transformations!(
                     end
                 else
                     quote
+                        $outinit
                         $invlogit = MutableFixedSizePaddedVector{$M,$T}(undef)
-                        $∂invlogit = MutableFixedSizePaddedVector{$M,$T}(undef)))
+                        $∂invlogit = MutableFixedSizePaddedVector{$M,$T}(undef)
                     end
                 end
                 push!(fp, invlogitinits)
@@ -257,21 +279,28 @@ function load_transformations!(
                                     (scale == one(T) ? ilt : :($scale * $ilt)) :
                                     (scale == one(T) ? :($(b.lb) + $ilt) : :(SIMDPirates.vmuladd($scale, $ilt, $(b.lb)))))
                 end
-                logjac && push!(loop_body.args, :(target = vadd(target, $m.SLLEFPirates.log($∂ilt))))
+                logjac && push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂ilt))))
                 loop_quote = quote
                     LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
                         $loop_body
                     end
                 end
                 push!(fp, macroexpand(m, loop_quote))
-                storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
-                                 Expr(:for, Expr(:(=), isym, pstorerange),
-                                      :($∂θ[$isym] = one($T) - $(T(2)) * $invlogit[$isym] +
-                                        ($seedout)[$isym] *
-                                        $(scale == one(T) ? :($∂invlogit[$isym]) : :($∂invlogit[$isym] * $scale))
-                                        )
-                                      )
-                                 )
+#                storeloop = Expr(:macrocall, loopmacro, LineNumberNode(@__LINE__, @__FILE__),
+#                                 Expr(:for, Expr(:(=), isym, 1:M),
+#                                      :($∂θ[$isym] = one($T) - $(T(2)) * $invlogit[$isym] +
+#                                        ($seedout)[$isym] *
+#                                        $(scale == one(T) ? :($∂invlogit[$isym]) : :($∂invlogit[$isym] * $scale))
+#                                        )
+#                                      )
+#                                 )
+                storeloop = quote
+                    LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
+                        $∂θ[$isym] = one($T) - $(T(2)) * $invlogit[$isym] +
+                            ($seedout)[$isym] *
+                            $(scale == one(T) ? :($∂invlogit[$isym]) : :($∂invlogit[$isym] * $scale))
+                    end
+                end
                 push!(sp, macroexpand(m, storeloop))
             else
                 loop_body = quote
@@ -281,8 +310,9 @@ function load_transformations!(
                                     (scale == one(T) ? invlogit : :($scale * $invlogit)) :
                                     (scale == one(T) ? :($(b.lb) + $invlogit) : :(SIMDPirates.vmuladd($scale, $invlogit, $(b.lb)))))
                 end
-                logjac && push!(loop_body.args, :(target = vadd(target, $m.SLLEFPirates.log($invlogit * $ninvlogit))))
+                logjac && push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($invlogit * $ninvlogit))))
                 loop_quote = quote
+                    $outinit
                     LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
                         $loop_body
                     end

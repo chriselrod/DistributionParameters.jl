@@ -549,7 +549,7 @@ end
 
 
 
-function load_parameter(
+function load_parameter!(
     first_pass, second_pass, out, ::Type{<: AbstractLKJCorrCholesky{M,T}},
     partial::Bool = false, m::Module = DistributionParameters, sp::Nothing = nothing, logjac::Bool = true
 ) where {M,T}
@@ -672,11 +672,10 @@ function load_parameter(
 
     nothing
 end
-function load_parameter(
+function load_parameter!(
     first_pass, second_pass, out, ::Type{<: AbstractLKJCorrCholesky{M,T}},
     partial::Bool, m::Module, sp::Symbol, logjac::Bool = true
 ) where {M,T}
-#    sp == :nothing && return load_parameter(first_pass, second_pass, out, LKJCorrCholesky{M,T}, partial, m, nothing, logjac)
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     ninvlogitout = gensym(out)
@@ -819,11 +818,11 @@ function load_parameter(
     nothing
 end
 
-function load_parameter(
+function load_parameter!(
     first_pass, second_pass, out, ::Type{<: AbstractLKJCorrCholesky{M}},
     partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true
 ) where {M}
-    load_parameter(first_pass, second_pass, out, LKJCorrCholesky{M,Float64}, partial, m, sp, logjac)
+    load_parameter!(first_pass, second_pass, out, LKJCorrCholesky{M,Float64}, partial, m, sp, logjac)
 end
 
 

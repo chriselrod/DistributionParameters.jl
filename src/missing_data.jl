@@ -13,12 +13,22 @@ struct MissingDataArray{M,B,T,N,A <: AbstractArray{T,N}}
 #    inds::MutableFixedSizePaddedVector{M,Int,M,M}
 end
 
+function parameter_names(::Type{<:MissingDataArray{M}}, s::Symbol) where {M}
+    ss = strip_hashtags(s) * "_missing_#"
+    [ss * string(m) for m ∈ 1:M]
+end
+
+PaddedMatrices.type_length(::MissingDataArray{M}) where {M} = M
+PaddedMatrices.type_length(::Type{<:MissingDataArray{M}}) where {M} = M
+PaddedMatrices.param_type_length(::MissingDataArray{M}) where {M} = M
+PaddedMatrices.param_type_length(::Type{<:MissingDataArray{M}}) where {M} = M
+
 """
 This function is not type stable.
 """
 function maybe_missing(A::AA) where {T,N,AA <: AbstractArray{Union{Missing,T},N}}
     M = sum(ismissing, A)
-    M == 0 && return A
+    M == 0 && return convert(Array{T}, A)
     l, u = extrema(skipmissing(AA))
     lb = l < 0 ? -typemax(T) : zero(T)
     ub = u > 0 ? typemax(T) : zero(T)
@@ -28,7 +38,7 @@ end
 function Base.convert(::Type{<:MissingDataArray{M}}, A::AbstractArray{T}) where {M,T}
     convert(MissingDataArray{M,Bounds(typemin(T),typemax(T))}, A)
 end
-function Base.convert(::Type{<:MissingDataArray{M,B}}, A::AA) where {T,B,N,AA <: AbstractArray{Union{Missing,T},N}}
+function Base.convert(::Type{<:MissingDataArray{M,B}}, A::AA) where {M,B,T,N,AA <: AbstractArray{Union{Missing,T},N}}
 #    M = sum(ismissing, A)
     #    M == 0 &&
     data = similar(A)
@@ -43,8 +53,18 @@ function Base.convert(::Type{<:MissingDataArray{M,B}}, A::AA) where {T,B,N,AA <:
 end
 
 
+function load_missing_as_vector!(
+    first_pass, second_pass, out, ::Type{<:MissingDataArray{M,B,T}}, partial::Bool = false,
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+) where {M,B,T}
+    load_parameter!(
+        first_pass, second_pass, out, RealVector{M,B,T}, partial, m, sptr, logjac, copyexport
+    )
+end
+
+
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{MissingDataArray{M,B,T}}, partial::Bool = false,
+    first_pass, second_pass, out, ::Type{<:MissingDataArray{M,B,T}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
 ) where {M,B,T}
     θ = Symbol("##θparameter##")
@@ -108,6 +128,7 @@ function load_parameter!(
 #    push!(first_pass, :($out = $out_missing.data))
     nothing
 end
+
 
 
 
