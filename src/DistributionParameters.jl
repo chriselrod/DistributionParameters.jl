@@ -5,7 +5,7 @@ using PaddedMatrices, StructuredMatrices, LinearAlgebra,
 
 using PaddedMatrices: StackPointer, DynamicPtrMatrix,
     AbstractMutableFixedSizePaddedVector, AbstractFixedSizePaddedVector
-export RealFloat, RealArray, RealVector, RealMatrix, Bounds, MissingDataArray,
+export RealFloat, RealArray, RealVector, RealMatrix, Bounds, MissingDataArray, maybe_missing,
     constrain, LKJCorrCholesky, DynamicCovarianceMatrix, Target
 
 #using LoopVectorization: @vvectorize

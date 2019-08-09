@@ -29,25 +29,26 @@ This function is not type stable.
 function maybe_missing(A::AA) where {T,N,AA <: AbstractArray{Union{Missing,T},N}}
     M = sum(ismissing, A)
     M == 0 && return convert(Array{T}, A)
-    l, u = extrema(skipmissing(AA))
-    lb = l < 0 ? -typemax(T) : zero(T)
-    ub = u > 0 ? typemax(T) : zero(T)
+    l, u = extrema(skipmissing(A))
+    lb = l > 0 ? zero(T) : -typemax(T)
+    ub = u < 0 ? zero(T) :  typemax(T)
     convert(MissingDataArray{M,Bounds(lb,ub)}, A)
 end
+maybe_missing(A::AbstractArray) = A
 
-function Base.convert(::Type{<:MissingDataArray{M}}, A::AbstractArray{T}) where {M,T}
+function Base.convert(::Type{<:MissingDataArray{M}}, A::AbstractArray{Union{Missing,T}}) where {M,T}
     convert(MissingDataArray{M,Bounds(typemin(T),typemax(T))}, A)
 end
 function Base.convert(::Type{<:MissingDataArray{M,B}}, A::AA) where {M,B,T,N,AA <: AbstractArray{Union{Missing,T},N}}
 #    M = sum(ismissing, A)
     #    M == 0 &&
-    data = similar(A)
+    data = similar(A, Float64)
     ptr_A = Base.unsafe_convert(Ptr{T}, pointer(A)) # is this necessary?
     LoopVectorization.@vvectorize for i ∈ eachindex(A)
         data[i] = ptr_A[i]
     end
-    inds = findall(ismissing, A)
-    MissingDataArray{M,B,T,N,AA}(
+    inds = findall(ismissing, vec(A))
+    MissingDataArray{M,B,T,N,typeof(data)}(
         data, inds
     )
 end
@@ -72,22 +73,24 @@ function load_parameter!(
     out_missing = Symbol("##missing##", out)
     out_incomplete = Symbol("##incomplete##", out)
     out_incompleteinds = Symbol("##incompleteinds##", out)
-    push!(first_pass.args, :($out_incompleteinds = $out_incomplete.inds))
-    push!(first_pass.args, :($out = $out_incomplete.data))
+    push!(first_pass, :($out_incompleteinds = $out_incomplete.inds))
+    push!(first_pass, :($out = $out_incomplete.data))
     seedout = Symbol("###seed###", out)
     seedout_missing = Symbol("###seed###", out_missing)
     tempstackptr = sptr isa Symbol ? Symbol("##temp##", sptr) : sptr
+    isym = gensym(:i)
     if partial
-        isym = gensym(:i)
         if isunbounded(B) # no transformation
             # we fully handle the partial here
             # therefore, we set partial = false
             # to prevent load_transformations
             # from doing so as well.
             partial = false 
+            ptr_∂θ = gensym(:ptr_∂θ)
             ∂gather_quote = quote
+                $ptr_∂θ = pointer($∂θ)
                 @inbounds for $isym ∈ 1:$M
-                    $∂θ[$isym] = $seedout[$out_incompleteinds[$isym]]
+                    $m.VectorizationBase.store!($ptr_∂θ + ($isym - 1) * $(sizeof(T)), $seedout[$out_incompleteinds[$isym]])
                 end
                 $∂θ += $M
             end
@@ -117,11 +120,12 @@ function load_parameter!(
         first_pass, second_pass, B, out_missing, Int[ M ],
         partial, logjac, sptr, m, θ, ∂θ, copyexport
     )
-    complete_out_quote = quote
+    scatter_quote = quote
         @inbounds for $isym ∈ 1:$M
             $out[$out_incompleteinds[$isym]] = $out_missing[$isym]
         end
     end
+    push!(first_pass, scatter_quote)
     if partial && sptr isa Symbol
         push!(second_pass, :($sptr = $tempstackptr))
     end
