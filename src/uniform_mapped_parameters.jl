@@ -10,15 +10,16 @@ PaddedMatrices.type_length(::Type{<:RealFloat}) = 1
 strip_hashtags(s::String) = s[1+last(findlast("#",s)):end]
 strip_hashtags(s::Symbol) = strip_hashtags(string(s))
 parameter_names(::Type{<:RealFloat}, s::Symbol) = [strip_hashtags(s)]
-@generated function parameter_names(::Type{<: RealArray{S,B,T,N}}, s::Symbol) where {S,B,T,N}
+@generated function parameter_names(::Type{<: RealArray{S}}, s::Symbol) where {S}
     SV = S.parameters
+    N = length(S.parameters)
     L = prod(SV)
-    indices = [Symbol(:i_, n) for n ∈ 1:N]
+#    indices = [Symbol(:i_, n) for n ∈ 1:N]
     loop = quote
-        for i_1 ∈ 1:$(SV[1])
+#        for i_1 ∈ 1:$(SV[1])
             ind += 1
             names[ind] = ss * "[" * si_1 * "]"
-        end
+#        end
     end
     for n ∈ 1:N
         i_n = Symbol(:i_, n)
