@@ -551,7 +551,8 @@ end
 
 function load_parameter!(
     first_pass, second_pass, out, ::Type{<: AbstractLKJCorrCholesky{M,T}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Nothing = nothing, logjac::Bool = true, copyexport::Any = false
+    partial::Bool = false, m::Module = DistributionParameters, sp::Nothing = nothing,
+    logjac::Bool = true, exportparam::Bool = false
 ) where {M,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -674,7 +675,7 @@ function load_parameter!(
 end
 function load_parameter!(
     first_pass, second_pass, out, ::Type{<: AbstractLKJCorrCholesky{M,T}},
-    partial::Bool, m::Module, sp::Symbol, logjac::Bool = true, copyexport::Any = false
+    partial::Bool, m::Module, sp::Symbol, logjac::Bool = true, exportparam::Bool = false
 ) where {M,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -820,9 +821,10 @@ end
 
 function load_parameter!(
     first_pass, second_pass, out, ::Type{<: AbstractLKJCorrCholesky{M}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Any = false
+    partial::Bool = false, m::Module = DistributionParameters,
+    sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {M}
-    load_parameter!(first_pass, second_pass, out, LKJCorrCholesky{M,Float64}, partial, m, sp, logjac, copyexport)
+    load_parameter!(first_pass, second_pass, out, LKJCorrCholesky{M,Float64}, partial, m, sp, logjac, exportparam)
 end
 
 

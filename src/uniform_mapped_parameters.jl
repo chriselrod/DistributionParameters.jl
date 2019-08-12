@@ -47,20 +47,20 @@ end
 
 function load_parameter!(
     first_pass, second_pass, out, ::Type{RealFloat}, partial::Bool = false,
-    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 )
     T = Float64
     B = Bounds(typemin(T), typemax(T))
     
     load_parameter!(
-        first_pass, second_pass, out, RealFloat{B,T}, partial, m, sptr, logjac, copyexport
+        first_pass, second_pass, out, RealFloat{B,T}, partial, m, sptr, logjac, exportparam
     )
 end
 
 
 function load_parameter!(
     first_pass, second_pass, out, ::Type{RealFloat{BT}}, partial::Bool = false,
-    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {BT}
     if BT isa Bounds
         B = BT
@@ -73,40 +73,40 @@ function load_parameter!(
     end
 
     load_parameter!(
-        first_pass, second_pass, out, RealFloat{B,T}, partial, m, sptr, logjac, copyexport
+        first_pass, second_pass, out, RealFloat{B,T}, partial, m, sptr, logjac, exportparam
     )
 end
 
 
 function load_parameter!(
     first_pass, second_pass, out, ::Type{RealFloat{B,T}}, partial::Bool = false,
-    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {T, B}
     shape = Int[]
     load_transformations!(
         first_pass, second_pass, B, out, shape,
         partial, logjac, sptr,
         m, Symbol("##θparameter##"), Symbol("##∂θparameter##"),
-        copyexport
+        exportparam
     )    
 end
 
 function load_parameter!(
     first_pass, second_pass, out, ::Type{<:RealArray{S}}, partial::Bool = false,
-    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {S}
     T = Float64
     B = Bounds(typemin(T), typemax(T))
     
     load_parameter!(
-        first_pass, second_pass, out, RealArray{S,B,T}, partial, m, sptr, logjac, copyexport
+        first_pass, second_pass, out, RealArray{S,B,T}, partial, m, sptr, logjac, exportparam
     )
 end
 
 
 function load_parameter!(
     first_pass, second_pass, out, ::Type{<:RealArray{S,BT}}, partial::Bool = false,
-    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {S,BT}
     if BT isa Bounds
         B = BT
@@ -119,19 +119,19 @@ function load_parameter!(
     end
 
     load_parameter!(
-        first_pass, second_pass, out, RealArray{S,B,T}, partial, m, sptr, logjac, copyexport
+        first_pass, second_pass, out, RealArray{S,B,T}, partial, m, sptr, logjac, exportparam
     )
 end
 
 function load_parameter!(
     first_pass, second_pass, out, ::Type{<:RealArray{S,B,T}}, partial::Bool = false,
-    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
+    m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {S,B,T}
     load_transformations!(
         first_pass, second_pass, B, out, Int[S.parameters...],
         partial, logjac, sptr,
         m, Symbol("##θparameter##"), Symbol("##∂θparameter##"),
-        copyexport
+        exportparam
     )    
 end
 

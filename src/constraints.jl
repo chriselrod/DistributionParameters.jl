@@ -70,7 +70,7 @@ function load_transformations!(
     partial::Bool, logjac::Bool, sptr,
     m::Module = DistributionParameters,
     θ = Symbol("##θparameter##"), ∂θ = Symbol("##∂θparameter##"),
-    copyexport::Bool = false
+    exportparam::Bool = false
 ) where {T}
     N = length(shape)
     scalar = iszero(N)
@@ -94,7 +94,7 @@ function load_transformations!(
     if isunbounded(b)
         if scalar
             push!(fp, :($out = $m.VectorizationBase.load($θ)))
-        elseif copyexport
+        elseif exportparam
             isym = gensym(:i)
             loop_quote = quote
                 LoopVectorization.@vvectorize $T for $isym ∈ 1:$M
