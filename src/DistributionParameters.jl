@@ -89,8 +89,8 @@ end
         )
     end
 end
-@inline vadd(t::Target, v::SVec) = add(t, SIMDPirates.extract_data(v))
-@inline vadd(v::SVec, t::Target) = add(t, SIMDPirates.extract_data(v))
+@inline vadd(t::Target, v::SVec) = vadd(t, SIMDPirates.extract_data(v))
+@inline vadd(v::SVec, t::Target) = vadd(t, SIMDPirates.extract_data(v))
 @inline function vadd(s::T, t::Target{T,W}) where {W,T}
     Target( t.v, Base.FastMath.add_fast(s, t.s) )
 end

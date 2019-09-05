@@ -404,7 +404,7 @@ end
             i = inds[s]
             Base.Cartesian.@nexprs $K k -> b_k[i] = a_k[s]
         end
-        sp + $(sizeof(T)*M*K), (Base.Cartesian.@ntuple $K b)
+        sp + $(VectorizationBase.align(sizeof(T)*M*K)), (Base.Cartesian.@ntuple $K b)
     end
 end
 
@@ -1007,7 +1007,7 @@ end
             Base.Cartesian.@nexprs $K k -> b[k] = κ_k
         end
         #        ConstantFixedSizePaddedVector{$K,$T,$KL,$KL}( $outtup )'
-        sp + $(KL*sizeof(T)), b'
+        sp + $(VectorizationBase.align(KL*sizeof(T))), b'
     end
 end
 

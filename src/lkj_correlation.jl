@@ -209,7 +209,7 @@ function constrain_lkj_factor_quote(L, T, zsym, sp = false)
     else
         push!(q.args, :($logdetsym = zero(T)))
     end
-    lkj_length = StructuredMatrices.binomial2(Mp1+1)
+    lkj_length = VectorizationBase.align(StructuredMatrices.binomial2(Mp1+1),T)
     if sp
         lkjsym = gensym(:LKJ)
         push!(q.args, :($lkjsym = DistributionParameters.PtrLKJCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T))))
@@ -363,7 +363,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
     end
 
     if sp
-        lkj_length = binomial2(Mp1+1)
+        lkj_length = VectorizationBase.align(binomial2(Mp1+1),T)
         lkjsym = gensym(:LKJ)
         push!(q.args, :($lkjsym = PtrLKJCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T))))
         push!(q.args, :(sp += $(sizeof(T)*lkj_length)))
