@@ -82,7 +82,7 @@ function load_transformations!(
     elseif sptr isa Symbol
         quote
             $out = $m.PtrArray{$(Tuple{shape...}),$T,$N,$(first(shape)),$M,true}(pointer($sptr, $T))
-            $sptr += $(sizeof(T)*M)
+            $sptr += $(VectorizationBase.align(sizeof(T)*M))
         end
     else
         quote # Do we want to pad these?
@@ -255,9 +255,9 @@ function load_transformations!(
                     quote
                         $outinit
                         $invlogit = $m.PtrVector{$M,$T}(pointer($sptr,$T))
-                        $sptr += $(M*sizeof(T))
+                        $sptr += $(VectorizationBase.align(M*sizeof(T)))
                         $∂invlogit = $m.PtrVector{$M,$T}(pointer($sptr,$T))
-                        $sptr += $(M*sizeof(T))
+                        $sptr += $(VectorizationBase.align(M*sizeof(T)))
                     end
                 else
                     quote
