@@ -80,9 +80,16 @@ function load_transformations!(
     outinit = if scalar
         quote end
     elseif sptr isa Symbol
-        quote
-            $out = $m.PtrArray{$(Tuple{shape...}),$T,$N,$(first(shape)),$M,true}(pointer($sptr, $T))
-            $sptr += $(VectorizationBase.align(sizeof(T)*M))
+        if N == 1
+            quote
+                $out = $m.PtrVector{$(first(shape)),$T}(pointer($sptr, $T))
+                $sptr += $(VectorizationBase.align(sizeof(T)*M))
+            end
+        else
+            quote
+                $out = $m.PtrArray{$(Tuple{shape...}),$T,$N,$(first(shape)),$M,true}(pointer($sptr, $T))
+                $sptr += $(VectorizationBase.align(sizeof(T)*M))
+            end
         end
     else
         quote # Do we want to pad these?

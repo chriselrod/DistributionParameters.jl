@@ -92,7 +92,7 @@ function Base.getindex(adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}, i, j,
     zero(T)
 end
 
-function LKJ_adjoint_mul_quote(Mp1,T)
+function LKJ_adjoint_mul_quote(Mp1,T,sp::Bool = false)
     M = Mp1 - 1
     q = quote end
     StructuredMatrices.load_packed_L_quote!(q.args, Mp1, :∂target_∂L, :t)
@@ -127,41 +127,69 @@ function LKJ_adjoint_mul_quote(Mp1,T)
     end
 
 
-    outtup = Expr(:tuple,)
     # for p ∈ 1:M
     #     push!(outtup.args, PaddedMatrices.sym(:∂lkj_∂z, p, p) )
     # end
-    for pc ∈ 1:M
-        for pr ∈ pc:M
-            push!(outtup.args, PaddedMatrices.sym(:∂lkj_∂z, pr, pc))
-        end
-    end
     lkj_l = StructuredMatrices.binomial2(Mp1)
     lkj_l_full = PaddedMatrices.pick_L(lkj_l, T)
-    for p ∈ StructuredMatrices.binomial2(Mp1)+1:lkj_l_full
-        push!(outtup.args, zero(T))
+    if sp
+        push!(q.args, :(sptr = pointer(sp, $T); out = PtrVector{$lkj_l,$T}(sptr)))
+        ind = 0
+        size_T = sizeof(T)
+        for pc ∈ 1:M
+            for pr ∈ pc:M
+                push!(q.args, :(VectorizationBase.store!(sptr + $size_T*$ind, $(PaddedMatrices.sym(:∂lkj_∂z, pr, pc)))))
+                ind += 1
+            end
+        end
+        push!(q.args, :(sp + $(VectorizationBase.align(lkj_l_full*size_T)), out' ))
+    else
+        outtup = Expr(:tuple,)
+        for pc ∈ 1:M
+            for pr ∈ pc:M
+                push!(outtup.args, PaddedMatrices.sym(:∂lkj_∂z, pr, pc))
+            end
+        end
+        for p ∈ StructuredMatrices.binomial2(Mp1)+1:lkj_l_full
+            push!(outtup.args, zero(T))
+        end
+        push!(q.args, :(ConstantFixedSizePaddedArray{Tuple{$lkj_l}, $T, 1, $lkj_l_full, $lkj_l_full}($outtup)'))
     end
-
     quote
         @fastmath @inbounds begin
             $q
-            ConstantFixedSizePaddedArray{Tuple{$lkj_l}, $T, 1, $lkj_l_full, $lkj_l_full}($outtup)'
         end
     end
 end
 
 @generated function Base.:*(
-        t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizePaddedVector{BP,T,BPL,BPL}},
-        adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
-    ) where {Mp1,T,L,BP,BPL}
+    t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizePaddedVector{BP,T,BPL,BPL}},
+    adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
+) where {Mp1,T,L,BP,BPL}
     LKJ_adjoint_mul_quote(Mp1,T)
 end
 
 @generated function Base.:*(
-        t::StructuredMatrices.AbstractLowerTriangularMatrix{Mp1,T},
-        adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
-    ) where {Mp1,T,L}
+    t::StructuredMatrices.AbstractLowerTriangularMatrix{Mp1,T},
+    adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
+) where {Mp1,T,L}
     LKJ_adjoint_mul_quote(Mp1,T)
+end
+
+@generated function Base.:*(
+    sp::StackPointer,
+    t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizePaddedVector{BP,T,BPL,BPL}},
+    adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
+) where {Mp1,T,L,BP,BPL}
+    LKJ_adjoint_mul_quote(Mp1,T,true)
+end
+
+@generated function Base.:*(
+    sp::StackPointer,
+    t::StructuredMatrices.AbstractLowerTriangularMatrix{Mp1,T},
+    adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
+) where {Mp1,T,L}
+    LKJ_adjoint_mul_quote(Mp1,T,true)
 end
 
 
@@ -609,32 +637,9 @@ function load_parameter!(
         lkjlogdetgradsym = gensym(:lkjlogdetgrad)
         lkjjacobiansym = gensym(:lkjjacobian)
         push!(second_pass, quote
-            # $lkjlogdetgradsym = $lkjlogdetgrad
-            # $lkjjacobiansym = $lkjjacobian
-            # @show $zsym
-            # @show $(Symbol("###seed###", out)) * $lkjjacobiansym
-            # @show $lkjlogdetgradsym
-
-            $seedlkj = ($(Symbol("###seed###", out)) * $lkjjacobiansym).parent # .parent to take off the transpose
-            # @show $seedlkj'
-            # @show $invlogitout'
-            # @show $∂invlogitout'
-            # ProbabilityModels.DistributionParameters.LoopVectorization.@vvectorize $T for $i ∈ 1:$N
-            #     $∂θ[$i] = $(T(0.5)) - ($invlogitout)[$i] + ($seedlkj)[$i] * ($∂invlogitout)[$i]
-            #     # $∂θ[$i] = one($T) - $(T(2)) * ( ($invlogitout)[$i] - ($seedlkj)[$i] * ($∂invlogitout)[$i] )
-            # end
-            # println("invlogitout")
-            # println($invlogitout)
-            # println("seedlkj")
-            # println($seedlkj)
-            # println("lkjlogdetgradsym")
-            # println($lkjlogdetgradsym)
-            # println("∂invlogitout")
-            # println($∂invlogitout)
+              $seedlkj = ($(Symbol("###seed###", out)) * $lkjjacobiansym).parent
             LoopVectorization.@vvectorize for $i ∈ 1:$L
-                # $∂θ[$i] = $(T(0.5)) - ($invlogitout)[$i] + (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i]
                 $∂θ[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
-                # $∂θ[$i] = one($T) - $(T(2)) * ( ($invlogitout)[$i] - ($seedlkj)[$i] * ($∂invlogitout)[$i] )
             end
             $∂θ += $N
         end)
@@ -748,34 +753,13 @@ function load_parameter!(
         seedlkj = gensym(:seedlkj)
         lkjlogdetgradsym = gensym(:lkjlogdetgrad)
         lkjjacobiansym = gensym(:lkjjacobian)
+        seedlkjgensym = gensym(seedlkj)
         push!(second_pass, quote
-            # $lkjlogdetgradsym = $lkjlogdetgrad
-            # $lkjjacobiansym = $lkjjacobian
-            # @show $zsym
-            # @show $(Symbol("###seed###", out)) * $lkjjacobiansym
-            # @show $lkjlogdetgradsym
-
-            $seedlkj = ($(Symbol("###seed###", out)) * $lkjjacobiansym).parent # .parent to take off the transpose
-            # @show $seedlkj'
-            # @show $invlogitout'
-            # @show $∂invlogitout'
-            # ProbabilityModels.DistributionParameters.LoopVectorization.@vvectorize $T for $i ∈ 1:$N
-            #     $∂θ[$i] = $(T(0.5)) - ($invlogitout)[$i] + ($seedlkj)[$i] * ($∂invlogitout)[$i]
-            #     # $∂θ[$i] = one($T) - $(T(2)) * ( ($invlogitout)[$i] - ($seedlkj)[$i] * ($∂invlogitout)[$i] )
-            # end
-            # println("invlogitout")
-            # println($invlogitout)
-            # println("seedlkj")
-            # println($seedlkj)
-            # println("lkjlogdetgradsym")
-            # println($lkjlogdetgradsym)
-            # println("∂invlogitout")
-              # println($∂invlogitout)
+              ($sp, $seedlkjgensym) = $sp * $(Symbol("###seed###", out)) * $lkjjacobiansym
+              $seedlkj = $seedlkjgensym.parent
               $(macroexpand(m, quote
                             LoopVectorization.@vvectorize for $i ∈ 1:$N
-                            # $∂θ[$i] = $(T(0.5)) - ($invlogitout)[$i] + (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i]
                             $∂θ[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
-                            # $∂θ[$i] = one($T) - $(T(2)) * ( ($invlogitout)[$i] - ($seedlkj)[$i] * ($∂invlogitout)[$i] )
                             end
                             end))
             $∂θ += $N
