@@ -17,6 +17,21 @@ function parameter_names(::Type{<:MissingDataArray{M}}, s::Symbol) where {M}
     ss = strip_hashtags(s) * "_missing_#"
     [ss * string(m) for m ∈ 1:M]
 end
+function parameter_names(A::MissingDataArray{M}, s::Symbol) where {M}
+    out = Vector{String}(undef,M)
+    ci = CartesianIndices(A.data)
+    inds = A.inds
+    ss = strip_hashtags(s)*"["
+    for m in 1:M
+        cim = ci[inds[m]]
+        ssm = ss * string(cim[1])
+        for i in 2:length(cim)
+            ssm *= "," * string(cim[i])
+        end
+        out[m] = ssm * "]"
+    end
+    out
+end
 
 PaddedMatrices.type_length(::MissingDataArray{M}) where {M} = M
 PaddedMatrices.type_length(::Type{<:MissingDataArray{M}}) where {M} = M
