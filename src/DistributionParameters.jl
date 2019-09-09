@@ -21,6 +21,10 @@ struct One end
 #@inline Base.:*(::One, ::One) = One()
 Base.size(::One) = Core.tuple()
 
+@inline extract(A::LinearAlgebra.Adjoint) = A.parent
+@inline extract(A::Symmetric) = A.data
+@inline extract(A::LowerTriangular) = A.data
+@inline extract(A) = A
 
 struct Target{T,W}
     v::Vec{W,T}

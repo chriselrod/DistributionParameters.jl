@@ -76,10 +76,12 @@ function load_parameter!(
     push!(first_pass, :($out_incompleteinds = $out_incomplete.inds))
     push!(first_pass, :($out = $out_incomplete.data))
     seedout = Symbol("###seed###", out)
+    seedoutextract = Symbol("###seed###extract", out)
     seedout_missing = Symbol("###seed###", out_missing)
     tempstackptr = sptr isa Symbol ? Symbol("##temp##", sptr) : sptr
     isym = gensym(:i)
     if partial
+        push!(second_pass, :($seedoutextract = $m.DistributionParameters.extract($seedout)))
         if isunbounded(B) # no transformation
             # we fully handle the partial here
             # therefore, we set partial = false
@@ -90,7 +92,7 @@ function load_parameter!(
             ∂gather_quote = quote
                 $ptr_∂θ = pointer($∂θ)
                 @inbounds for $isym ∈ 1:$M
-                    $m.VectorizationBase.store!($ptr_∂θ + ($isym - 1) * $(sizeof(T)), $seedout[$out_incompleteinds[$isym]])
+                    $m.VectorizationBase.store!($ptr_∂θ + ($isym - 1) * $(sizeof(T)), $seedoutextract[$out_incompleteinds[$isym]])
                 end
                 $∂θ += $M
             end
@@ -109,7 +111,7 @@ function load_parameter!(
             end
             ∂gather_quote = quote
                 @inbounds for $isym ∈ 1:$M
-                    $seedout_missing[$ism] = $seedout[$out_incompleteinds[$isym]]
+                    $seedout_missing[$ism] = $seedoutextract[$out_incompleteinds[$isym]]
                 end
             end
             push!(second_pass, seedout_init_quote)
