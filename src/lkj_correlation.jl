@@ -200,7 +200,7 @@ end
 Generates the quote for the constraining transformation from z ∈ (-1,1) to LKJ_Correlation_Cholesky
 without taking the derivative of the expression.
 """
-function constrain_lkj_factor_quote(L, T, zsym, sp = false)
+function constrain_lkj_factor_quote(L, T, zsym, sp = false, align = true)
     # @show L
     M = (Int(sqrt(1 + 8L))-1)>>1
     Mp1 = M+1
@@ -241,7 +241,11 @@ function constrain_lkj_factor_quote(L, T, zsym, sp = false)
     if sp
         lkjsym = gensym(:LKJ)
         push!(q.args, :($lkjsym = DistributionParameters.PtrLKJCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T))))
-        push!(q.args, :(sp += $(sizeof(T)*lkj_length)))
+        sp_increment = sizeof(T) * lkj_length
+        if align
+            sp_increment = VectorizationBase.align(sp_increment)
+        end
+        push!(q.args, :(sp += $sp_increment))
         i = 0
         for mc ∈ 1:M+1
             i += 1
@@ -267,6 +271,10 @@ function constrain_lkj_factor_quote(L, T, zsym, sp = false)
             for mr ∈ mc+1:M+1
                 push!(output.args, Symbol(:x_, mr, :_, mc))
             end
+        end
+        cls = length(output.args) + 1
+        for i in cls:lkj_length
+            push!(output.args, zero(T))
         end
         return quote
             @fastmath @inbounds begin
@@ -532,7 +540,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
     end
 end
 
-@generated function lkj_constrain(zlkj::PaddedMatrices.AbstractFixedSizePaddedVector{L,T}) where {T,L}
+@generated function lkj_constrain(zlkj::PaddedMatrices.AbstractFixedSizePaddedVector{L,T}) where {L,T}
     # L = StructuredMatrices.binomial2(M)
     lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(L, T, :zlkj)
     quote
@@ -550,9 +558,9 @@ end
 end
 
 
-@generated function lkj_constrain(sp::StackPointer, zlkj::PaddedMatrices.AbstractFixedSizePaddedVector{L,T}) where {L,T}
+@generated function lkj_constrain(sp::StackPointer, zlkj::PaddedMatrices.AbstractFixedSizePaddedVector{L,T}, ::Val{Align} = Val{true}()) where {L,T,Align}
     # L = StructuredMatrices.binomial2(M)
-    lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(L, T, :zlkj, true)
+    lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(L, T, :zlkj, true, Align)
     quote
         # Inlined because of:
         # https://github.com/JuliaLang/julia/issues/32414
@@ -733,15 +741,15 @@ function load_parameter!(
         logjac && push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂invlogitout))))
     end
 
-    vloop = macroexpand(m, quote
+    vloop_quote = quote
         LoopVectorization.@vvectorize $T for $i ∈ 1:$N
             $loop_body
         end
-                        end)
-#    println("\n\n\n\n\n")
+    end
+    #    println("\n\n\n\n\n")
 #    println(vloop)
 #    println("\n\n\n\n\n")
-    push!(q.args, vloop)
+    push!(q.args, macroexpand(m, vloop_quote))
     #push!(q.args, macroexpand(m, quote
    #     LoopVectorization.@vvectorize $T for $i ∈ 1:$L
   #          $loop_body
@@ -765,9 +773,6 @@ function load_parameter!(
             $∂θ += $N
         end)
         push!(q.args, quote
-            # $zsym = ConstantFixedSizePaddedVector{$M}($mv)
-            # $lkjconstrain_q
-            # $out = $lkjconstrained_expr
             ($sp, ($out, $lkjlogdetsym, $lkjlogdetgradsym, $lkjjacobiansym)) = DistributionParameters.∂lkj_constrain($sp, $zsym)
             $θ += $N
             # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
@@ -784,10 +789,7 @@ function load_parameter!(
         # lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(N, T, zsym)
 
         push!(q.args, quote
-            # $zsym = ConstantFixedSizePaddedVector{$M}($mv)
-            # $lkjconstrain_q
-            # $out = $lkjconstrained_expr
-            ($sp, ($out, $lkjlogdetsym)) = DistributionParameters.lkj_constrain($sp, $zsym)
+            ($sp, ($out, $lkjlogdetsym)) = DistributionParameters.lkj_constrain($sp, $zsym, Val{$(!exportparam)}())
             $θ += $N
             # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
 #            target = $m.SIMDPirates.vadd(target, $log_jac + $lkjlogdetsym)

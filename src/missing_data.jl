@@ -9,9 +9,10 @@ N: Dimensionality of Array (how many axis?)
 """
 struct MissingDataArray{M,B,T,N,A <: AbstractArray{T,N}}
     data::A
-    inds::Vector{Int}
+    inds::Vector{CartesianIndex{N}}
 #    inds::MutableFixedSizePaddedVector{M,Int,M,M}
 end
+# Base.CartesianIndices(A::MissingDataArray) = CartesianIndices(A.data)
 
 function parameter_names(::Type{<:MissingDataArray{M}}, s::Symbol) where {M}
     ss = strip_hashtags(s) * "_missing_#"
@@ -19,11 +20,11 @@ function parameter_names(::Type{<:MissingDataArray{M}}, s::Symbol) where {M}
 end
 function parameter_names(A::MissingDataArray{M}, s::Symbol) where {M}
     out = Vector{String}(undef,M)
-    ci = CartesianIndices(A.data)
+    # ci = CartesianIndices(A)
     inds = A.inds
     ss = strip_hashtags(s)*"["
     for m in 1:M
-        cim = ci[inds[m]]
+        cim = inds[m]
         ssm = ss * string(cim[1])
         for i in 2:length(cim)
             ssm *= "," * string(cim[i])
@@ -62,9 +63,8 @@ function Base.convert(::Type{<:MissingDataArray{M,B}}, A::AA) where {M,B,T,N,AA 
     LoopVectorization.@vvectorize for i ∈ eachindex(A)
         data[i] = ptr_A[i]
     end
-    inds = findall(ismissing, vec(A))
     MissingDataArray{M,B,T,N,typeof(data)}(
-        data, inds
+        data, findall(ismissing, A)
     )
 end
 

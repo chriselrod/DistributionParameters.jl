@@ -70,8 +70,9 @@ function load_transformations!(
     partial::Bool, logjac::Bool, sptr,
     m::Module = DistributionParameters,
     θ = Symbol("##θparameter##"), ∂θ = Symbol("##∂θparameter##"),
-    exportparam::Bool = false
+    exportparam::Bool = false, align::Bool = true
 ) where {T}
+    maybe_align = x -> exportparam ? x : VectorizationBase.align(x)
     N = length(shape)
     scalar = iszero(N)
     M = prod(shape)
@@ -83,12 +84,12 @@ function load_transformations!(
         if N == 1
             quote
                 $out = $m.PtrVector{$(first(shape)),$T}(pointer($sptr, $T))
-                $sptr += $(VectorizationBase.align(sizeof(T)*M))
+                $sptr += $(maybe_align(sizeof(T)*M))
             end
         else
             quote
                 $out = $m.PtrArray{$(Tuple{shape...}),$T,$N,$(first(shape)),$M,true}(pointer($sptr, $T))
-                $sptr += $(VectorizationBase.align(sizeof(T)*M))
+                $sptr += $(maybe_align(sizeof(T)*M))
             end
         end
     else
@@ -262,9 +263,9 @@ function load_transformations!(
                     quote
                         $outinit
                         $invlogit = $m.PtrVector{$M,$T}(pointer($sptr,$T))
-                        $sptr += $(VectorizationBase.align(M*sizeof(T)))
+                        $sptr += $(maybe_align(M*sizeof(T)))
                         $∂invlogit = $m.PtrVector{$M,$T}(pointer($sptr,$T))
-                        $sptr += $(VectorizationBase.align(M*sizeof(T)))
+                        $sptr += $(maybe_align(M*sizeof(T)))
                     end
                 else
                     quote
