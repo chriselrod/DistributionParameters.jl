@@ -70,7 +70,7 @@ function load_transformations!(
     partial::Bool, logjac::Bool, sptr,
     m::Module = DistributionParameters,
     θ = Symbol("##θparameter##"), ∂θ = Symbol("##∂θparameter##"),
-    exportparam::Bool = false, align::Bool = true
+    exportparam::Bool = false
 ) where {T}
     maybe_align = x -> exportparam ? x : VectorizationBase.align(x)
     N = length(shape)
@@ -331,6 +331,7 @@ function load_transformations!(
     end
     push!(fp, :($θ += $M))
     partial && push!(sp, :($∂θ += $M))
+    nothing
 end
 
 #=

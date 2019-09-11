@@ -200,7 +200,7 @@ end
 Generates the quote for the constraining transformation from z ∈ (-1,1) to LKJ_Correlation_Cholesky
 without taking the derivative of the expression.
 """
-function constrain_lkj_factor_quote(L, T, zsym, sp = false, align = true)
+function constrain_lkj_factor_quote(L::Int, T, zsym::Symbol, sp::Bool = false, align::Bool = true)
     # @show L
     M = (Int(sqrt(1 + 8L))-1)>>1
     Mp1 = M+1
@@ -237,7 +237,10 @@ function constrain_lkj_factor_quote(L, T, zsym, sp = false, align = true)
     else
         push!(q.args, :($logdetsym = zero(T)))
     end
-    lkj_length = VectorizationBase.align(StructuredMatrices.binomial2(Mp1+1),T)
+    lkj_length = StructuredMatrices.binomial2(Mp1+1)
+    if align
+        lkj_length = VectorizationBase.align(lkj_length, T)
+    end
     if sp
         lkjsym = gensym(:LKJ)
         push!(q.args, :($lkjsym = DistributionParameters.PtrLKJCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T))))
@@ -540,7 +543,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
     end
 end
 
-@generated function lkj_constrain(zlkj::PaddedMatrices.AbstractFixedSizePaddedVector{L,T}) where {L,T}
+@generated function lkj_constrain(zlkj::PaddedMatrices.AbstractFixedSizePaddedVector{L,T}) where {T,L}
     # L = StructuredMatrices.binomial2(M)
     lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(L, T, :zlkj)
     quote
