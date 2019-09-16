@@ -1,7 +1,7 @@
 module DistributionParameters
 
 using PaddedMatrices, StructuredMatrices, LinearAlgebra,
-        SIMDPirates, SLEEFPirates, LoopVectorization, VectorizationBase
+        SIMDPirates, SLEEFPirates, LoopVectorization, VectorizationBase, StackPointers
 
 using PaddedMatrices: StackPointer, DynamicPtrMatrix,
     AbstractMutableFixedSizePaddedVector, AbstractFixedSizePaddedVector
@@ -263,14 +263,9 @@ include("missing_data.jl")
 
 # @support_stack_pointer load_parameter
 
-PaddedMatrices.@support_stack_pointer lkj_constrain
-PaddedMatrices.@support_stack_pointer ∂lkj_constrain
-PaddedMatrices.@support_stack_pointer CovarianceMatrix
-PaddedMatrices.@support_stack_pointer ∂CovarianceMatrix
+@def_stackpointer_fallback lkj_constrain ∂lkj_constrain CovarianceMatrix ∂CovarianceMatrix
 function __init__()
-    for m ∈ (:lkj_constrain, :∂lkj_constrain, :CovarianceMatrix, :∂CovarianceMatrix)
-        push!(PaddedMatrices.STACK_POINTER_SUPPORTED_METHODS, m)
-    end
+    @add_stackpointer_method lkj_constrain ∂lkj_constrain CovarianceMatrix ∂CovarianceMatrix
 end
 
 end # module
