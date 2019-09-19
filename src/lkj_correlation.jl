@@ -29,7 +29,7 @@ end
 struct PtrLKJCholeskyConstraintAdjoint{P,T,L} <: AbstractLKJCholeskyConstraintAdjoint{P,T,L}
     ptr::Ptr{T}
 end
-@inline VectorizationBase.vectorizable(A::PtrLKJCorrCholesky{M,T}) where {M,T} = VectorizationBase.vpointer(A.ptr)
+@inline VectorizationBase.vectorizable(A::PtrLKJCorrCholesky{M,T}) where {M,T} = VectorizationBase.Pointer(A.ptr)
 @inline Base.pointer(A::PtrLKJCholeskyConstraintAdjoint) = A.ptr
 @inline Base.unsafe_convert(::Type{Ptr{T}}, A::PtrLKJCholeskyConstraintAdjoint{P,T}) where {P,T} = A.ptr
 Base.size(::AbstractLKJCholeskyConstraintAdjoint{P}) where {P} = (P,P,P-1,P-1)
