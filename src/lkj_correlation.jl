@@ -427,7 +427,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
 
         ∂logdetsym = gensym(:∂logdet)
         bin2M = binomial2(M+1)
-        push!(q.args, :($∂logdetsym = PtrVector{$bin2M,$T,$bin2M,$bin2M}(pointer(sp, $T))))
+        push!(q.args, :($∂logdetsym = PtrVector{$bin2M,$T,$bin2M}(pointer(sp, $T))))
         push!(q.args, :(sp += $(sizeof(T)*bin2M)))
         i = 0
         for mc ∈ 1:M

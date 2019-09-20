@@ -116,12 +116,12 @@ function load_parameter!(
                 # Do we need to increment the stack pointer?
                 seedout_init_quote = quote
                     $tempstackptr = $sptr
-                    $seedout_missing = $m.PaddedMatrices.PtrVector{$M,$T,$M,$M}(pointer($sptr, $T))
+                    $seedout_missing = $m.PaddedMatrices.PtrVector{$M,$T,$M}(pointer($sptr, $T))
                     $sptr += $M
                 end
             else
                 seedout_init_quote = quote
-                    $seedout_missing = $m.PaddedMatrices.MutableFixedSizePaddedVector{$M,$T,$M,$M}(undef)
+                    $seedout_missing = $m.PaddedMatrices.MutableFixedSizePaddedVector{$M,$T,$M}(undef)
                 end
             end
             ∂gather_quote = quote
