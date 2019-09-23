@@ -73,7 +73,7 @@ const AbstractCovarianceMatrix{T} = Union{AbstractFixedSizeCovarianceMatrix{M,T}
 
 struct MissingDataVector{T,S,M,R,L}#,VT<AbstractVector{T}}
 #    bitmask::BitVector
-    indices::MutableFixedSizePaddedVector{S,Int,S,S} # note, indices start from 0
+    indices::MutableFixedSizePaddedVector{S,Int,S} # note, indices start from 0
 #    data::VT
     ∂Σ::MutableFixedSizeCovarianceMatrix{M,T,R,L} # ∂Σ, rather than stack pointer, so that we can guarantee elements are 0
 end
@@ -390,13 +390,13 @@ end
     total_length = (K*M + Wm1) & + ~Wm1
     quote
         # we zero the used data in a single loop.
-        zero_out = PtrVector{$total_length,$T,$total_length,$total_length}(pointer(sp, $T))
+        zero_out = PtrVector{$total_length,$T,$total_length}(pointer(sp, $T))
         @inbounds @simd ivdep for i ∈ 1:$total_length
             zero_out[i] = zero($T)
         end
         
         Base.Cartesian.@nexprs $K k -> begin
-            b_k = PtrVector{$M,$T,$M,$M}(pointer(sp,$T) + $(sizeof(T)*M) * (k-1))
+            b_k = PtrVector{$M,$T,$M}(pointer(sp,$T) + $(sizeof(T)*M) * (k-1))
             a_k = a[k]
         end
         inds = mdv.mdv.indices
@@ -1003,7 +1003,7 @@ end
                     end
                 end
             end
-            b = PaddedMatrices.PtrVector{$K,$T,$KL,$KL}(pointer(sp,$T))
+            b = PaddedMatrices.PtrVector{$K,$T,$KL}(pointer(sp,$T))
             Base.Cartesian.@nexprs $K k -> b[k] = κ_k
         end
         #        ConstantFixedSizePaddedVector{$K,$T,$KL,$KL}( $outtup )'

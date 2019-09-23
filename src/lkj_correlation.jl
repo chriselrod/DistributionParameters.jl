@@ -163,7 +163,7 @@ function LKJ_adjoint_mul_quote(Mp1,T,sp::Bool = false)
 end
 
 @generated function Base.:*(
-    t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizePaddedVector{BP,T,BPL,BPL}},
+    t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizePaddedVector{BP,T,BPL}},
     adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
 ) where {Mp1,T,L,BP,BPL}
     LKJ_adjoint_mul_quote(Mp1,T)
@@ -178,7 +178,7 @@ end
 
 @generated function Base.:*(
     sp::StackPointer,
-    t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizePaddedVector{BP,T,BPL,BPL}},
+    t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizePaddedVector{BP,T,BPL}},
     adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
 ) where {Mp1,T,L,BP,BPL}
     LKJ_adjoint_mul_quote(Mp1,T,true)

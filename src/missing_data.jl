@@ -10,7 +10,7 @@ N: Dimensionality of Array (how many axis?)
 struct MissingDataArray{M,B,T,N,A <: AbstractArray{T,N}}
     data::A
     inds::Vector{CartesianIndex{N}}
-#    inds::MutableFixedSizePaddedVector{M,Int,M,M}
+#    inds::MutableFixedSizePaddedVector{M,Int,M}
 end
 # Base.CartesianIndices(A::MissingDataArray) = CartesianIndices(A.data)
 
