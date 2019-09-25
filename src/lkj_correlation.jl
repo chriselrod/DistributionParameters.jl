@@ -202,7 +202,7 @@ without taking the derivative of the expression.
 """
 function constrain_lkj_factor_quote(L::Int, T, zsym::Symbol, sp::Bool = false, align::Bool = true)
     # @show L
-    M = (Int(sqrt(1 + 8L))-1)>>1
+    M = (Int(sqrt(1 + 8L))-1)>>>1
     Mp1 = M+1
     q = quote x_1_1 = one($T) end
     for m ∈ 1:M
@@ -314,7 +314,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
     #
     # We denote the (-1, 1) constrained parameters "z"
     # while "x" is the (M+1) x (M+1) cholesky factor of the correlation matrix.
-    M = (Int(sqrt(1 + 8L))-1)>>1
+    M = (Int(sqrt(1 + 8L))-1)>>>1
     Mp1 = M+1
     q = quote x_1_1 = one($T) end
     for m ∈ 1:M
@@ -602,7 +602,7 @@ function load_parameter!(
     W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
     sumθᵢ = gensym(:sumθᵢ)
 
-    N = (M * (M-1)) >> 1
+    N = (M * (M-1)) >>> 1
 
     Wm1 = W - 1
     rem = N & Wm1
@@ -702,7 +702,7 @@ function load_parameter!(
     W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
     sumθᵢ = gensym(:sumθᵢ)
 
-    N = (M * (M-1)) >> 1
+    N = (M * (M-1)) >>> 1
 
     Wm1 = W - 1
     rem = N & Wm1

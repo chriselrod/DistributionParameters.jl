@@ -122,7 +122,7 @@ function mask!(
     #W = max(8, T_W)
     #shift = max(3, T_shift)
     
-    Nr = Nl >> 3
+    Nr = Nl >>> 3
     px = pointer(A)
     pd = pointer(B)
     T_size = sizeof(T)
@@ -155,12 +155,12 @@ function mask!(
     #W = max(8, T_W)
     #shift = max(3, T_shift)
     
-    Nr = Nl >> 3
+    Nr = Nl >>> 3
     px = pointer(A.data)
     pd = pointer(B.data)
     T_size = sizeof(T)
     @inbounds for nc ∈ mcol
-        for n ∈ (nc >> 3):Nr-1
+        for n ∈ (nc >>> 3):Nr-1
             vx = SIMDPirates.vload(Vec{8,T}, px + T_size*(nc*Nl+n*8), VectorizationBase.load(pm + n))
             SIMDPirates.vstore!(pd + T_size*(nc*Nl+n*8), vx)
         end
@@ -662,7 +662,7 @@ end
             $(SIMD ? quote
             vρ = SIMDPirates.vbroadcast($V, ρ)
             vlogρ = SIMDPirates.vbroadcast($V, logρ)
-            for tcouter ∈ 0:$((nTl>>Wshift)-1)
+            for tcouter ∈ 0:$((nTl>>>Wshift)-1)
                 for tcinner ∈ 1:$W
                     Wtcouter = $W*tcouter
                     tc = tcinner + Wtcouter
@@ -671,7 +671,7 @@ end
                         ARs[tr,tc,k] = ARs[tc,tr,k]
                     end
                     vtime_tc = SIMDPirates.vbroadcast($V, times[tc])
-                    for i ∈ tcouter:$((nTl>>Wshift)-1)
+                    for i ∈ tcouter:$((nTl>>>Wshift)-1)
                         vtimes_tr = SIMDPirates.vload($V, ptr_time + i * $(T_size*W))
                         vδt = SIMDPirates.vabs(SIMDPirates.vsub(vtimes_tr, vtime_tc))
                         vδtm1 = SIMDPirates.vsub(vδt, SIMDPirates.vbroadcast($V,one($T)))
@@ -744,7 +744,7 @@ end
         quote
             vρ = SIMDPirates.vbroadcast($V, ρ)
             vlogρ = SIMDPirates.vbroadcast($V, logρ)
-            for tcouter ∈ 0:$((nTl>>Wshift)-1)
+            for tcouter ∈ 0:$((nTl>>>Wshift)-1)
                 for tcinner ∈ 1:$W
                     Wtcouter = $W*tcouter
                     tc = tcinner + Wtcouter
@@ -754,7 +754,7 @@ end
                         ∂ARs[tr,tc,k] = ∂ARs[tc,tr,k]
                     end
                     vtime_tc = SIMDPirates.vbroadcast($V, times[tc])
-                    for i ∈ tcouter:$((nTl>>Wshift)-1)
+                    for i ∈ tcouter:$((nTl>>>Wshift)-1)
                         vtimes_tr = SIMDPirates.vload($V, ptr_time + i * $(T_size*W))
                         vδt = SIMDPirates.vabs(SIMDPirates.vsub(vtimes_tr, vtime_tc))
                         vδtm1 = SIMDPirates.vsub(vδt, SIMDPirates.vbroadcast($V,one($T)))
@@ -778,7 +778,7 @@ end
                 #                offset = (k-1)*$(nTl*nT) + c*$nTl
                 offset = (k-1)*$(T_size*nTl*nT) + c*$(T_size*nTl)
                 vtime_tc = SIMDPirates.vbroadcast($V, times[c+1])
-                for r ∈ 0:$((nTl >> Wshift)-1)
+                for r ∈ 0:$((nTl >>> Wshift)-1)
                     vtimes_tr = SIMDPirates.vload($V, ptr_time + r * $(T_size*W))
                     vδt = SIMDPirates.vabs(SIMDPirates.vsub(vtimes_tr, vtime_tc))
                     vδtm1 = SIMDPirates.vsub(vδt, SIMDPirates.vbroadcast($V,one($T)))
