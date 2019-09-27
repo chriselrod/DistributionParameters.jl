@@ -70,11 +70,8 @@ Base.size(A::DynamicCovarianceMatrix) = (m = size(A.data,2); (m,m))
 Base.getindex(A::DynamicCovarianceMatrix, I...) = A.data[I...]
 const AbstractCovarianceMatrix{T} = Union{AbstractFixedSizeCovarianceMatrix{M,T} where M,DynamicCovarianceMatrix{T}}
 
-
-struct MissingDataVector{T,S,M,R,L}#,VT<AbstractVector{T}}
-#    bitmask::BitVector
+struct MissingDataVector{T,S,M,R,L}
     indices::MutableFixedSizePaddedVector{S,Int,S} # note, indices start from 0
-#    data::VT
     ∂Σ::MutableFixedSizeCovarianceMatrix{M,T,R,L} # ∂Σ, rather than stack pointer, so that we can guarantee elements are 0
 end
 struct MissingDataVectorAdjoint{T,S,M,R,L}#,VT}
@@ -82,17 +79,6 @@ struct MissingDataVectorAdjoint{T,S,M,R,L}#,VT}
 end
 function MissingDataVector{T}(bitmask) where {T}
     MissingDataVector{T}(PaddedMatrices.MutableFixedSizePaddedVector, bitmask)
-    #=
-    N = length(bitmask)
-    #    data = zeros(DynamicPaddedMatrix{T}, (N,))
-    A = zeros(DynamicPaddedMatrix{T}, (N,N))
-    Σ = DynamicCovarianceMatrix{T,typeof(A)}(
-        A
-    )
-    MissingDataVector(
-        findall(i -> i == 1, bitmask), Σ#data, Σ
-    )
-    =#
 end
 ## Not Type Stable
 function MissingDataVector{T}(::Type{<:PaddedMatrices.AbstractFixedSizePaddedVector}, bitmask) where {T}
@@ -100,73 +86,11 @@ function MissingDataVector{T}(::Type{<:PaddedMatrices.AbstractFixedSizePaddedVec
     inds = findall(i -> i == 1, bitmask)
     indices = PaddedMatrices.MutableFixedSizePaddedVector{length(inds),Int}(inds)#::PaddedMatrices.MutableFixedSizePaddedVector
     MissingDataVector(
-        indices, Σ#data, Σ
-    )#::MissingDataVector{T,typeof(Σ),length(inds)}
+        indices, Σ
+    )
 end
 Base.size(::MissingDataVectorAdjoint{T,S,M}) where {T,S,M} = (S,M)
 
-
-#=
-# These versions seem useless, because A and B aren't supposed to be the same size!?!
-function mask!(
-    B::AbstractPaddedMatrix{T},
-    A::AbstractPaddedMatrix{T},
-    mrow::BitVector,
-    mcol::Vector{<:Integer}
-) where {T}
-    Nl = LoopVectorization.stride_row(A)
-    N = size(A,2)
-#    Nl, N = size(d)
-    pm = Base.unsafe_convert(Ptr{UInt8}, pointer(mrow.chunks))
-    #T_W, T_shift = VectorizationBase.pick_vector_width_shift(T)
-    #W = max(8, T_W)
-    #shift = max(3, T_shift)
-    
-    Nr = Nl >>> 3
-    px = pointer(A)
-    pd = pointer(B)
-    T_size = sizeof(T)
-    @inbounds for nc ∈ mcol
-        for n ∈ 0:Nr-1
-            vx = SIMDPirates.vload(Vec{8,T}, px + T_size*(nc*Nl+n*8), VectorizationBase.load(pm + n))
-            SIMDPirates.vstore!(pd + T_size*(nc*Nl+n*8), vx)
-        end
-    end
-end
-function mask(
-    A::Union{DynamicCovarianceMatrix{T,ADT2},Symmetric{T,ADT2}},
-    mdv::MissingDataVector{T,ADT1}
-) where {T, ADT1 <: AbstractDynamicPaddedMatrix{T}, ADT2 <: AbstractDynamicPaddedMatrix{T}}
-    ∂Σ = mdv.∂Σ
-    mask!(∂Σ, A, mdv.indices)
-    ∂Σ
-end
-
-function mask!(
-    B::Union{DynamicCovarianceMatrix{T,ADT1},Symmetric{T,ADT1}},
-    A::Union{DynamicCovarianceMatrix{T,ADT2},Symmetric{T,ADT2}},
-    mrow::BitVector, mcol::AbstractVector{<:Integer}
-) where {T, ADT1 <: AbstractDynamicPaddedMatrix{T}, ADT2 <: AbstractDynamicPaddedMatrix{T}}
-    Nl = LoopVectorization.stride_row(A)
-    N = size(A,2)
-#    Nl, N = size(d)
-    pm = Base.unsafe_convert(Ptr{UInt8}, pointer(mrow.chunks))
-    #T_W, T_shift = VectorizationBase.pick_vector_width_shift(T)
-    #W = max(8, T_W)
-    #shift = max(3, T_shift)
-    
-    Nr = Nl >>> 3
-    px = pointer(A.data)
-    pd = pointer(B.data)
-    T_size = sizeof(T)
-    @inbounds for nc ∈ mcol
-        for n ∈ (nc >>> 3):Nr-1
-            vx = SIMDPirates.vload(Vec{8,T}, px + T_size*(nc*Nl+n*8), VectorizationBase.load(pm + n))
-            SIMDPirates.vstore!(pd + T_size*(nc*Nl+n*8), vx)
-        end
-    end
-end
-=#
 #They assume lower triangular symetric
 function mask!(
     B::Union{DynamicCovarianceMatrix{T,ADT1},Symmetric{T,ADT1}},
