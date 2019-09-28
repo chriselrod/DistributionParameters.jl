@@ -1,6 +1,6 @@
 
 struct RealFloat{B,T} <: Real end
-struct RealArray{S,B,T,N,P,L} <: PaddedMatrices.AbstractMutableFixedSizePaddedArray{S,T,N,P,L} end
+struct RealArray{S,B,T,N,X,L} <: PaddedMatrices.AbstractMutableFixedSizeArray{S,T,N,X,L} end
 const RealVector{M,B,T,L} = RealArray{Tuple{M},B,T,1,L,L}
 const RealMatrix{M,N,B,T,L} = RealArray{Tuple{M,N},B,T,2,M,L}
 
@@ -14,12 +14,9 @@ parameter_names(::Type{<:RealFloat}, s::Symbol) = [strip_hashtags(s)]
     SV = S.parameters
     N = length(S.parameters)
     L = prod(SV)
-#    indices = [Symbol(:i_, n) for n ∈ 1:N]
     loop = quote
-#        for i_1 ∈ 1:$(SV[1])
-            ind += 1
-            names[ind] = ss * "[" * si_1 * "]"
-#        end
+        ind += 1
+        names[ind] = ss * "[" * si_1 * "]"
     end
     for n ∈ 1:N
         i_n = Symbol(:i_, n)

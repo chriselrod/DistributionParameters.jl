@@ -4,7 +4,7 @@ using PaddedMatrices, StructuredMatrices, LinearAlgebra,
         SIMDPirates, SLEEFPirates, LoopVectorization, VectorizationBase, StackPointers
 
 using PaddedMatrices: StackPointer, DynamicPtrMatrix,
-    AbstractMutableFixedSizePaddedVector, AbstractFixedSizePaddedVector
+    AbstractMutableFixedSizeVector, AbstractFixedSizeVector
 export RealFloat, RealArray, RealVector, RealMatrix, Bounds, MissingDataArray, maybe_missing,
     constrain, LKJCorrCholesky, DynamicCovarianceMatrix, Target
 

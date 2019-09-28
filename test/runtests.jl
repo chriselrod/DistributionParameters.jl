@@ -13,20 +13,20 @@ pS = StructuredMatrices.SymmetricMatrixL(S)
 L = StructuredMatrices.lower_chol(S);
     L * L'
 T = 36; δₜ = (1/16) * reduce(+, (@Constant randexp(T-1)) for i ∈ 1:8);
-    times = vcat(zero(ConstantFixedSizePaddedVector{1,Float64}), cumsum(δₜ));
+    times = vcat(zero(ConstantFixedSizeVector{1,Float64}), cumsum(δₜ));
     ρtup = (0.35,0.4,0.45,0.5,0.55,0.60,0.65);
-    ρ = ConstantFixedSizePaddedVector{7}(ρtup);
+    ρ = ConstantFixedSizeVector{7}(ρtup);
     
 KT = K*T;
 
-    ARs = PaddedMatrices.MutableFixedSizePaddedArray{Tuple{T,T,K},Float64}(undef);
+    ARs = PaddedMatrices.MutableFixedSizeArray{Tuple{T,T,K},Float64}(undef);
 
     using PaddedMatrices: DynamicPaddedArray
     
 workspace = (
     Sigfull = PaddedMatrices.DynamicPaddedArray{Float64}(undef, (K*T,K*T), (KT+15) & -8),
     ARs = ARs,
-    ∂ARs = PaddedMatrices.MutableFixedSizePaddedArray{Tuple{T,T,K},Float64}(undef)
+    ∂ARs = PaddedMatrices.MutableFixedSizeArray{Tuple{T,T,K},Float64}(undef)
 );
 fill!(workspace.Sigfull, 19.5);
 Cov, pAR, pL = DistributionParameters.∂DynamicCovarianceMatrix(ρ, L, times, workspace, Val((true,true)));
@@ -34,7 +34,7 @@ Cov, pAR, pL = DistributionParameters.∂DynamicCovarianceMatrix(ρ, L, times, w
 #pL |> typeof
 #spL |> typeof
 #spL    
-    mtimes = MutableFixedSizePaddedVector(times);
+    mtimes = MutableFixedSizeVector(times);
     sp, (spC, spAR, spL) = DistributionParameters.∂CovarianceMatrix(ProbabilityModels.STACK_POINTER, ρ, L, mtimes, Val((true,true)));
 #    sp0 = PaddedMatrices.StackPointer(Libc.malloc(8*1<<28));
 
@@ -71,7 +71,7 @@ pL.ARs
     @test all(asC .≈ aC)
 #    L
 #    L_K
-    mtimes = MutableFixedSizePaddedVector(times);
+    mtimes = MutableFixedSizeVector(times);
     Lm = MutableLowerTriangularMatrix(Array(L))
     ρ, ρs
 
@@ -117,32 +117,32 @@ using Statistics
 
 
      function DistributionParameters.CovarianceMatrix(
-         rhos::PaddedMatrices.AbstractFixedSizePaddedVector{K,T1},
+         rhos::PaddedMatrices.AbstractFixedSizeVector{K,T1},
          L::StructuredMatrices.AbstractLowerTriangularMatrix{K,T2},
-         times::ConstantFixedSizePaddedVector{nT}
+         times::ConstantFixedSizeVector{nT}
      ) where {K,T1,T2,nT}
 
          T = promote_type(T1, T2)
          workspace = (
              Sigfull = PaddedMatrices.DynamicPaddedArray{T}(undef, (K*nT,K*nT)),
-             ARs = PaddedMatrices.MutableFixedSizePaddedArray{Tuple{nT,nT,K},T}(undef),
+             ARs = PaddedMatrices.MutableFixedSizeArray{Tuple{nT,nT,K},T}(undef),
          )
          DistributionParameters.DynamicCovarianceMatrix(rhos, L, times, workspace)
          
      end
 
-    ForwardDiff.gradient(r -> sum(Symmetric(DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{7}(ntuple(i -> r[i], Val(7))), L, times))), SVector(ρtup))
+    ForwardDiff.gradient(r -> sum(Symmetric(DistributionParameters.CovarianceMatrix( ConstantFixedSizeVector{7}(ntuple(i -> r[i], Val(7))), L, times))), SVector(ρtup))
 
     zd = ones(K*T,K*T) ; #.- LowerTriangular(ones(K*T,K*T));
     zr = randn(KT,KT); @. zr = zr + zr';
 
     @test all(
-        ForwardDiff.gradient(r -> sum(LowerTriangular(zd .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{7}(ntuple(i -> r[i], Val(7))), L, times))), SVector(ρtup))'
+        ForwardDiff.gradient(r -> sum(LowerTriangular(zd .* DistributionParameters.CovarianceMatrix( ConstantFixedSizeVector{7}(ntuple(i -> r[i], Val(7))), L, times))), SVector(ρtup))'
         .≈
         Array(zd * spAR)
     )
     @test all(
-        ForwardDiff.gradient(r -> sum(LowerTriangular(zr .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{7}(ntuple(i -> r[i], Val(7))), L, times))), SVector(ρtup))'
+        ForwardDiff.gradient(r -> sum(LowerTriangular(zr .* DistributionParameters.CovarianceMatrix( ConstantFixedSizeVector{7}(ntuple(i -> r[i], Val(7))), L, times))), SVector(ρtup))'
         .≈
         Array(zr * spAR)
     )
@@ -208,11 +208,11 @@ L_K
     (Lfull * Ctest * Lfull') |> sum
 
     ForwardDiff.gradient(
-        r -> sum(UpperTriangular(zd .* DistributionParameters.CovarianceMatrix( ConstantFixedSizePaddedVector{4}(ntuple(i -> r[i], Val(4))), L, times))), SVector(0.5,0.65,0.7,0.75))
+        r -> sum(UpperTriangular(zd .* DistributionParameters.CovarianceMatrix( ConstantFixedSizeVector{4}(ntuple(i -> r[i], Val(4))), L, times))), SVector(0.5,0.65,0.7,0.75))
     
 
     
-vunstable(x::AbstractVector{T}) where {T} = ConstantFixedSizePaddedArray{Tuple{length(x)},T,1}(ntuple(i -> x[i], length(x)))
+vunstable(x::AbstractVector{T}) where {T} = ConstantFixedSizeArray{Tuple{length(x)},T,1}(ntuple(i -> x[i], length(x)))
 x = randn(16,16);
 ltx = LowerTriangular(x);
 ltxv = vec(ltx);
@@ -236,7 +236,7 @@ ltxv2 = ltx[trisub2(16)];
 trivec = vunstable(ltxv2);
 
 r2 = @Constant randn(120);
-@generated function load_lkj(a::PaddedMatrices.AbstractFixedSizePaddedVector{L,T}) where {L,T}
+@generated function load_lkj(a::PaddedMatrices.AbstractFixedSizeVector{L,T}) where {L,T}
     fp = quote end
     sp = quote end
     out = gensym(:L)
@@ -250,14 +250,14 @@ r2 = @Constant randn(120);
         $out, target
     end
 end
-@generated function ∂load_lkj(a::PaddedMatrices.AbstractFixedSizePaddedVector{L,T}, seedout = (M = (Int(sqrt(1 + 8L))-1)>>1; fill(1.0, PaddedMatrices.Static{(((M+2)*(M+1))>>1)}()))) where {L,T}
+@generated function ∂load_lkj(a::PaddedMatrices.AbstractFixedSizeVector{L,T}, seedout = (M = (Int(sqrt(1 + 8L))-1)>>1; fill(1.0, PaddedMatrices.Static{(((M+2)*(M+1))>>1)}()))) where {L,T}
     fp = quote end
     sp = quote end
     out = gensym(:L)
     M = (Int(sqrt(1 + 8L))-1)>>1
     DistributionParameters.load_parameter(fp.args, sp.args, out, DistributionParameters.LKJ_Correlation_Cholesky{M+1}, true)
     quote
-        $(Symbol("##∂θparameter##m")) = PaddedMatrices.MutableFixedSizePaddedVector{L,T}(undef);
+        $(Symbol("##∂θparameter##m")) = PaddedMatrices.MutableFixedSizeVector{L,T}(undef);
         $(Symbol("##∂θparameter##")) = VectorizationBase.vectorizable($(Symbol("##∂θparameter##m")))
         $(Symbol("##θparameter##")) = VectorizationBase.vectorizable(a);
         target = zero($T)
