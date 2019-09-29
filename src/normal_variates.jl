@@ -15,13 +15,11 @@ function padl(M, T = Float64)
     R, R*M
 end
 @generated function PtrFixedSizeCovarianceMatrix{M,T}(sp::StackPointer, ::UndefInitializer = undef) where {M,T}
-    #    R, L = padl(M,T)
     R = M
     L = R * M
     :(sp + $(sizeof(T)*L), PtrFixedSizeCovarianceMatrix{$M,$T,$R,$L}(pointer(sp, $T)))
 end
 @generated function MutableFixedSizeCovarianceMatrix{M,T}(::UndefInitializer) where {M,T}
-    #    R, L = padl(M,T)
     R = M
     L = R * M
     :(MutableFixedSizeCovarianceMatrix{$M,$T,$R,$L}(undef))
@@ -46,11 +44,8 @@ function Base.zeros(::Type{<:MutableFixedSizeCovarianceMatrix{M,T}}) where {M,T}
     A
 end
 
-
 struct DynamicCovarianceMatrix{T,ADT <: AbstractDynamicPaddedMatrix{T}} <: AbstractDynamicPaddedMatrix{T} #L
     data::ADT
-#    Σ::Symmetric{T,ADT}#Symmetric{T,DynamicPaddedMatrix{T}}
-#    ∂Σ::Symmetric{T,ADT}#PaddedMatrix{T}
 end
 function DynamicCovarianceMatrix{T}(::UndefInitializer, N) where {T}
     DynamicCovarianceMatrix(
@@ -121,13 +116,10 @@ function subset!(B::AbstractPaddedMatrix, A::AbstractPaddedMatrix, mdr::MissingD
     indsc = mdc.indices
     @boundscheck begin
         size(B) == (length(indsr), length(indsc)) || PaddedMatrices.ThrowBoundsError()
-#        size(A) == (length(mdr.bitmask), length(mdc.bitmask)) || PaddedMatrices.ThrowBoundsError()
     end
-
     @inbounds for ics ∈ eachindex(indsc), irs ∈ eachindex(indsr)
         B[irs,ics] = A[indsr[irs],indsc[ics]]
     end
-
 end
 function subset!(
     B::Union{DynamicCovarianceMatrix{T,ADT1},Symmetric{T,ADT1}},
@@ -135,25 +127,19 @@ function subset!(
     mdv::MissingDataVector
     #mrow::BitVector, mcol::Vector{<:Integer}
 ) where {T, ADT1 <: AbstractDynamicPaddedMatrix{T}, ADT2 <: AbstractDynamicPaddedMatrix{T}}
-#B::AbstractPaddedMatrix, A::AbstractPaddedMatrix, mdr::MissingDataVector, mdc::MissingDataVector)
     inds = mdv.indices
-#    indsc = mdc.indices
     N = length(inds)
     @boundscheck begin
         size(B) == (N, N) || PaddedMatrices.ThrowBoundsError()
-#        size(A) == (length(mdv.bitmask), length(mdv.bitmask)) || PaddedMatrices.ThrowBoundsError()
     end
-
     @inbounds for ics ∈ eachindex(inds), irs ∈ ics:N #eachindex(indsr)
         B[irs,ics] = A[inds[irs],inds[ics]]
     end
-
 end
 function subset!(
     B::AbstractFixedSizeCovarianceMatrix{S,T},
     A::AbstractFixedSizeCovarianceMatrix{L,T},
     mdv::MissingDataVector{T,S,L}
-    #mrow::BitVector, mcol::Vector{<:Integer}
 ) where {T, S, L}
     inds = mdv.indices
     @inbounds for ics ∈ 1:S, irs ∈ ics:S
@@ -257,17 +243,14 @@ end
     quote
         inds = mdv.indices
         Base.Cartesian.@nexprs $K k -> (a_k = @inbounds a[k]; (sp, b_k) = PaddedMatrices.PtrVector{$S,$T}(sp))
-#        @show typeof(a_1)
-#        @show typeof(b_1)
-#        println("P2: $P2\n")
         for s ∈ 1:$S
-            #        @inbounds for p ∈ 1:$P2
             i = inds[s]
             Base.Cartesian.@nexprs $K k-> (b_k[s] = a_k[i])
         end
         sp, (Base.Cartesian.@ntuple $K b)
     end
 end
+
 @generated function PaddedMatrices.∂getindex(
     sp::StackPointer,
     a::NTuple{K,V},
@@ -283,7 +266,6 @@ end
         sp, ((Base.Cartesian.@ntuple $K b), MissingDataVectorAdjoint(mdv))
     end
 end
-
 
 function Base.:*(A::AbstractCovarianceMatrix, mdv::MissingDataVectorAdjoint)
     ∂Σ = mdv.mdv.∂Σ
@@ -310,7 +292,6 @@ end
     mdv::MissingDataVectorAdjoint{T,S,M}
 ) where {K,T,S,M,V<:PaddedMatrices.AbstractMutableFixedSizeVector{S,T}}
     Wm1 = VectorizationBase.pick_vector_width(M,T) - 1
-#    MR = (M + Wm1) & ~Wm1
     total_length = (K*M + Wm1) & + ~Wm1
     quote
         # we zero the used data in a single loop.
@@ -318,7 +299,6 @@ end
         @inbounds @simd ivdep for i ∈ 1:$total_length
             zero_out[i] = zero($T)
         end
-        
         Base.Cartesian.@nexprs $K k -> begin
             b_k = PtrVector{$M,$T,$M}(pointer(sp,$T) + $(sizeof(T)*M) * (k-1))
             a_k = a[k]
@@ -332,103 +312,6 @@ end
     end
 end
 
-#=
-
-"""
-Variadic function. Given K groups (as tuples) of present indices...
-"""
-MissingDataMatrix(missingness...) = MissingDataMatrix(missingness)
-@generated function MissingDataMatrix(
-    missingness::KT
-) where {KT}
-    K = length(KT.parameters)
-
-    quote
-        patterns = Vector{Int}
-        for k ∈ 1:K
-            
-        end
-    end
-end
-# Type unstable, but is only run for data organization.
-function MissingDataMatrix(missingness::Tuple)
-    K = length(missingness)
-    patterns = Union{UnitRange{Int},Vector{Int}}[]
-    pattern_inds = MutableFixedSizeVector{K,Int,K,K}(undef)
-    for k ∈ 1:K
-        m = missingness[k]
-        ind = findfirst(x -> x == m, patterns)
-        if ind == nothing
-            push!(patterns, m)
-            pattern_inds[k] = length(patterns)
-        else
-            pattern_inds[k] = ind
-        end
-    end
-    quit_vector = Vector{Int}(undef, length(patterns))
-    quit_inds = Vector{Int}(undef, length(patterns) - 1)
-    quit_vector[1] = last(pattern_inds)
-    i = K-1
-    for k ∈ K-1:-1:1
-        pi = pattern_inds[k]
-        if pi ∉ quit_vector
-            
-        end
-    end
-    
-    # Now, which are downstream?
-    downstream = [ last(pattern_inds) ]
-    down_stream_groups = Vector{Vector{Int}}(undef, K-1)
-    for k ∈ K-1:-1:1
-        
-    end
-end
-=#
-
-#=
-struct ∂MultivariateNormalVariate{T,ADPM<:AbstractDynamicPaddedMatrix{T}} <: AbstractMatrix{T}
-    data::ADPM
-end
-Base.size(A::∂MultivariateNormalVariate) = size(A.data)
-Base.getindex(A::∂MultivariateNormalVariate, I...) = Base.getindex(A.data, I...)
-
-struct MultivariateNormalVariate{T,ADPM<:AbstractDynamicPaddedMatrix{T}} <: AbstractMatrix{T}
-    data::ADPM
-    δ::ADPM
-    Σ⁻¹δ::∂MultivariateNormalVariate{T,ADPM}
-end
-Base.size(A::MultivariateNormalVariate) = size(A.data)
-Base.getindex(A::MultivariateNormalVariate, I...) = Base.getindex(A.data, I...)
-
-# Data stored in lower triangle.
-Base.size(A::DynamicCovarianceMatrix) = size(A.data)
-Base.getindex(A::DynamicCovarianceMatrix, I...) = Base.getindex(A.data, I...)
-
-LinearAlgebra.cholesky!(Σ::DynamicCovarianceMatrix) = LinearAlgebra.LAPACK.potrf!('L', Σ.Σ.data)
-
-
-function Base.:\(U::UpperTriangular{T,Matrix{T}}, Y::MultivariateNormalVariate{T}) where {T}
-    δ = Y.δ
-    # Σ⁻¹δ = Y.Σ⁻¹δ
-    # copyto!(Σ⁻¹δ, δ)
-    LinearAlgebra.LAPACK.trtrs!('L', 'N', 'N', U.data, δ)
-end
-
-function Base.:\(U::Cholesky{T,Matrix{T}}, Y::MultivariateNormalVariate{T}) where {T}
-    δ = Y.δ
-    Σ⁻¹δ = Y.Σ⁻¹δ.data
-    copyto!(Σ⁻¹δ, δ)
-    LinearAlgebra.LAPACK.potrs!('L', U.factors, Σ⁻¹δ)
-end
-function Base.:\(Σ::DynamicCovarianceMatrix{T}, Y::MultivariateNormalVariate{T}) where {T <: BLAS.BlasFloat}
-    LinearAlgebra.LAPACK.potrf!('L', Σ.Σ.data)
-    δ = Y.δ
-    Σ⁻¹δ = Y.Σ⁻¹δ.data
-    copyto!(Σ⁻¹δ, δ)
-    LinearAlgebra.LAPACK.potrs!('L', Σ.Σ.data, Σ⁻¹δ)
-end
-=#
-
 @generated function DynamicCovarianceMatrix(
                 rhos::PaddedMatrices.AbstractFixedSizeVector{K,T}, L::StructuredMatrices.AbstractLowerTriangularMatrix{K},
                 times::ConstantFixedSizeVector{nT}, workspace
@@ -436,10 +319,7 @@ end
     Wm1 = VectorizationBase.pick_vector_width(nT, T) - 1
     nTl = (nT + Wm1) & ~Wm1
     quote
-        # nT = length(times) + 1
-        # K = size(L,1)
         ARs = workspace.ARs
-#        @show eltype(ARs), eltype(rhos)
         @fastmath @inbounds for k ∈ 1:$K
             ρ = rhos[k]
             logρ = $(T == Float64 ? :(ccall(:log,Float64,(Float64,),ρ))  :  :(Base.log(ρ)))
@@ -454,19 +334,13 @@ end
                     ARs[tr,tc,k] = $(T == Float64 ? :(ccall(:exp,Float64,(Float64,),logrhot)) : :(Base.exp(logrhot)))
                 end
             end
-            # ARs[:,:,k] .= AutoregressiveMatrix(rhos[k], δₜ)
         end
-        # Base.Cartesian.@nexprs $K k -> AR_k = ConstantFixedSizeMatrix(AutoregressiveMatrix(rhos[k], δₜ))
-        # ARs = [ConstantFixedSizeMatrix(AutoregressiveMatrix(rho, δₜ)) for rho ∈ rhos]
         Sigfull = workspace.Sigfull
-        # ∂Sig∂L
         @inbounds begin
         Base.Cartesian.@nexprs $K kc -> begin
             for kr ∈ kc-1:K-1
                 Base.Cartesian.@nexprs kc j -> l_j = L[kr+1,j] * L[kc,j]
-                # Sigview = @view Sigfull[(1:$nTl) .+ $nT*kr, (1:$nT) .+ $nT*(kc-1)]
                 sigrow, sigcol = $nT*kr, $nT*(kc-1)
-#                sigrow, sigcol = $nT*(kc-1), $nT*kr # transpose it
                 for tc ∈ 1:$nT
                     @simd ivdep for tr ∈ 1:$nTl
                         ari = l_1 * ARs[tr, tc, 1]
@@ -494,7 +368,7 @@ end
 @generated function ∂DynamicCovarianceMatrix(
     rhos::PaddedMatrices.AbstractFixedSizeVector{K,T},
     L::StructuredMatrices.AbstractLowerTriangularMatrix{K,T},
-    times::Union{<:AbstractFixedSizeVector{nT},PaddedMatrices.StaticUnitRange{nT}},
+    times::AbstractFixedSizeVector{nT},
     workspace, ::Val{(true,true)}
 ) where {K,T,nT}
     # We will assume rho > 0
@@ -502,15 +376,12 @@ end
     nTl = (nT + Wm1) & ~Wm1
     quote
         # nT = length(times) + 1
-        # K = size(L,1)
         ARs = workspace.ARs
         ∂ARs = workspace.∂ARs
         @inbounds @fastmath for k ∈ 1:$K
             ρ = rhos[k]
             # We want to use Base.log, and not fastmath log.
-            
             logρ = $(T == Float64 ? :(ccall(:log,Float64,(Float64,),ρ))  :  :(Base.log(ρ)))
-
             for tc ∈ 1:nT
                 for tr ∈ 1:tc-1
                     ARs[tr,tc,k] = ARs[tc,tr,k]
@@ -520,7 +391,6 @@ end
                 ∂ARs[tc,tc,k] = zero(T)
                 for tr ∈ tc+1:nT
                     deltatimes = times[tr] - times[tc]
-                    #                    rhot = rho^(deltatimes - one(T))
                     # We want to specifically use Base.exp, and not fastmath exp
                     logrhot = (deltatimes - one($T))*logρ
                     rhot = $(T == Float64 ? :(ccall(:exp,Float64,(Float64,),logrhot)) : :(Base.exp(logrhot)))
@@ -528,17 +398,13 @@ end
                     ∂ARs[tr,tc,k] = deltatimes*rhot
                 end
             end
-            # ARs[:,:,k] .= AutoregressiveMatrix(rhos[k], δₜ)
         end
         Sigfull = workspace.Sigfull
-        # ∂Sig∂L
         @inbounds begin
         Base.Cartesian.@nexprs $K kc -> begin
             for kr ∈ kc-1:K-1
                 Base.Cartesian.@nexprs kc j -> l_j = L[kr+1,j] * L[kc,j]
-                # Sigview = @view Sigfull[(1:$nTl) .+ $nT*kr, (1:$nT) .+ $nT*(kc-1)]
                 sigrow, sigcol = $nT*kr, $nT*(kc-1)
-#                sigrow, sigcol = $nT*(kc-1), $nT*kr # transpose it
                 for tc ∈ 1:$nT
                     @simd ivdep for tr ∈ 1:$nTl
                         ari = l_1 * ARs[tr, tc, 1]
@@ -557,9 +423,7 @@ end
     sp::StackPointer,
     rhos::PaddedMatrices.AbstractFixedSizeVector{K,T},
     L::StructuredMatrices.AbstractLowerTriangularMatrix{K,T},
-    times::Union{<:AbstractFixedSizeVector{nT},PaddedMatrices.StaticUnitRange{nT}},
-#    missing::MissingDataMatrix,
-    #    ::Val{(true,true)},
+    times::AbstractFixedSizeVector{nT},
     ::Val{SIMD} = Val{true}()
 ) where {K,T,nT,SIMD}
     # We will assume rho > 0
@@ -623,25 +487,21 @@ end
               end
               end )
         end
-        # ∂Sig∂L
         @inbounds begin
-        Base.Cartesian.@nexprs $K kc -> begin
-            for kr ∈ kc-1:K-1
-                Base.Cartesian.@nexprs kc j -> l_j = L[kr+1,j] * L[kc,j]
-                # Sigview = @view Sigfull[(1:$nTl) .+ $nT*kr, (1:$nT) .+ $nT*(kc-1)]
-                sigrow, sigcol = $nT*kr, $nT*(kc-1)
-#                sigrow, sigcol = $nT*(kc-1), $nT*kr # transpose it
-                for tc ∈ 0:$(nT-1)
-                    @vectorize for tr ∈ 1:$nT
-                        ari = l_1 * ARs[tr + tc * $nTl]
-                        Base.Cartesian.@nexprs kc-1 j -> ari = muladd(l_{j+1}, ARs[tr + tc*$nTl + j*$(nTl*nT)], ari)
-                        Sigfull[ tr + sigrow + (tc + sigcol)*$KT] = ari 
+            Base.Cartesian.@nexprs $K kc -> begin
+                for kr ∈ kc-1:K-1
+                    Base.Cartesian.@nexprs kc j -> l_j = L[kr+1,j] * L[kc,j]
+                    sigrow, sigcol = $nT*kr, $nT*(kc-1)
+                    for tc ∈ 0:$(nT-1)
+                        @vectorize for tr ∈ 1:$nT
+                            ari = l_1 * ARs[tr + tc * $nTl]
+                            Base.Cartesian.@nexprs kc-1 j -> ari = muladd(l_{j+1}, ARs[tr + tc*$nTl + j*$(nTl*nT)], ari)
+                            Sigfull[ tr + sigrow + (tc + sigcol)*$KT] = ari 
+                        end
                     end
                 end
             end
         end
-        end
-#        sp, (Sigfull,(∂ARs,L), (ARs,L))
         sp, Sigfull
     end
 end
@@ -649,7 +509,7 @@ end
     sp::StackPointer,
     rhos::PaddedMatrices.AbstractFixedSizeVector{K,T},
     L::StructuredMatrices.AbstractLowerTriangularMatrix{K,T},
-    times::Union{<:AbstractFixedSizeVector{nT},PaddedMatrices.StaticUnitRange{nT}},
+    times::AbstractFixedSizeVector{nT},
 #    missing::MissingDataMatrix,
     ::Val{(true,true)},::Val{SIMD} = Val{true}()
 ) where {K,T,nT,SIMD}
@@ -662,7 +522,6 @@ end
     # We want it to be a multiple of 8, and we don't want nTl bleeding over the edge
     KTR = ( KT + nTl - nT + Wm1 ) & ~Wm1
     T_size = sizeof(T)
-#    sym = false
     sym = true
     ARquote = if SIMD && sym
         quote
@@ -685,10 +544,8 @@ end
                         vρt = SLEEFPirates.exp(SIMDPirates.vmul(vδtm1, vlogρ))
                         AR_offset = (k-1)*$(T_size*nTl*nT) + (tc-1)*$(T_size*nTl) + i*$(W*T_size)
 
-                        SIMDPirates.vstore!(ptr_ARs + AR_offset,
-                                             SIMDPirates.vmul(vρ,vρt))
-                        SIMDPirates.vstore!(ptr_∂ARs + AR_offset,
-                                            SIMDPirates.vmul(vδt,vρt))
+                        SIMDPirates.vstore!(ptr_ARs + AR_offset, SIMDPirates.vmul(vρ,vρt))
+                        SIMDPirates.vstore!(ptr_∂ARs + AR_offset, SIMDPirates.vmul(vδt,vρt))
                     end
                 end
               end
@@ -698,8 +555,6 @@ end
             vρ = SIMDPirates.vbroadcast($V, ρ)
             vlogρ = SIMDPirates.vbroadcast($V, logρ)
             @inbounds for c ∈ 0:$(nT-1)
-                #                time_c = times[c+1]
-                #                offset = (k-1)*$(nTl*nT) + c*$nTl
                 offset = (k-1)*$(T_size*nTl*nT) + c*$(T_size*nTl)
                 vtime_tc = SIMDPirates.vbroadcast($V, times[c+1])
                 for r ∈ 0:$((nTl >>> Wshift)-1)
@@ -709,19 +564,9 @@ end
                     vρt = SLEEFPirates.exp(SIMDPirates.vmul(vδtm1, vlogρ))
                     AR_offset = offset + r*$(W*T_size)
 
-                    SIMDPirates.vstore!(ptr_ARs + AR_offset,
-                                        SIMDPirates.vmul(vρ,vρt))
-                    SIMDPirates.vstore!(ptr_∂ARs + AR_offset,
-                                        SIMDPirates.vmul(vδt,vρt))
+                    SIMDPirates.vstore!(ptr_ARs + AR_offset, SIMDPirates.vmul(vρ,vρt))
+                    SIMDPirates.vstore!(ptr_∂ARs + AR_offset, SIMDPirates.vmul(vδt,vρt))
                 end
-#                LoopVectorization.@vvectorize for r ∈ 1:$nTl
-#                    times_r = times[r]
-#                    δt = SIMDPirates.vabs(times_r - time_c)
-#                    δtm1 = δt - 1
-#                    ρtm1 = SLEEFPirates.exp(δtm1 * logρ)
-#                    ARs[r + offset] = ρtm1 * ρ
-#                    ∂ARs[r + offset] = ρtm1 * δt
-#                end
             end
         end
     else
@@ -745,102 +590,55 @@ end
             end
         end
     end
-        
     quote
-        # nT = length(times) + 1
-        # K = size(L,1)
-#       U = missing.unique_patterns
-#        ARs = workspace.ARs
-        #        ∂ARs = workspace.∂ARs
         sp,  ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3,$nTl}(sp)
         sp, ∂ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3,$nTl}(sp)
-        #        @inbounds @fastmath for k ∈ 1:$K
         ptr_time = pointer(times)
         ptr_ARs = pointer(ARs)
         ptr_∂ARs = pointer(∂ARs)
-#        @time for i ∈ 1:100000
         @inbounds for k ∈ 1:$K
             ρ = rhos[k]
             # We want to use Base.log, and not fastmath log.
             logρ = $(T == Float64 ? :(ccall(:log,Float64,(Float64,),ρ))  :  :(Base.log(ρ)))
             $ARquote
         end
-#        end
         sp, Sigfull = PtrFixedSizeCovarianceMatrix{$KT,$T}(sp)
-        # ∂Sig∂L
         @inbounds begin
-        Base.Cartesian.@nexprs $K kc -> begin
-            for kr ∈ kc-1:K-1
-                Base.Cartesian.@nexprs kc j -> l_j = L[kr+1,j] * L[kc,j]
-                # Sigview = @view Sigfull[(1:$nTl) .+ $nT*kr, (1:$nT) .+ $nT*(kc-1)]
-                sigrow, sigcol = $nT*kr, $nT*(kc-1)
-#                sigrow, sigcol = $nT*(kc-1), $nT*kr # transpose it
-                for tc ∈ 0:$(nT-1)
-                    @vectorize for tr ∈ 1:$nT
-                        ari = l_1 * ARs[tr + tc * $nTl]
-                        Base.Cartesian.@nexprs kc-1 j -> ari = muladd(l_{j+1}, ARs[tr + tc*$nTl + j*$(nTl*nT)], ari)
-                        Sigfull[ tr + sigrow + (tc + sigcol)*$KT] = ari 
+            Base.Cartesian.@nexprs $K kc -> begin
+                for kr ∈ kc-1:K-1
+                    Base.Cartesian.@nexprs kc j -> l_j = L[kr+1,j] * L[kc,j]
+                    sigrow, sigcol = $nT*kr, $nT*(kc-1)
+                    for tc ∈ 0:$(nT-1)
+                        @vectorize for tr ∈ 1:$nT
+                            ari = l_1 * ARs[tr + tc * $nTl]
+                            Base.Cartesian.@nexprs kc-1 j -> ari = muladd(l_{j+1}, ARs[tr + tc*$nTl + j*$(nTl*nT)], ari)
+                            Sigfull[ tr + sigrow + (tc + sigcol)*$KT] = ari 
+                        end
                     end
                 end
             end
         end
-        end
-#        println("Calculating Covariance Matrix, ∂ARs:")
-#        display(∂ARs)
-#        println("Calculating Covariance Matrix, L:")
-#        display(L)
-#        @show Array(∂ARs)[1:6,1:6,:]
-#=        @inbounds begin
-        Base.Cartesian.@nexprs $K kc -> begin
-            for kr ∈ kc-1:K-1
-                Base.Cartesian.@nexprs kc j -> l_j = L[kr+1,j] * L[kc,j]
-                # Sigview = @view Sigfull[(1:$nTl) .+ $nT*kr, (1:$nT) .+ $nT*(kc-1)]
-                sigrow, sigcol = $nT*kr, $nT*(kc-1)
-#                sigrow, sigcol = $nT*(kc-1), $nT*kr # transpose it
-                for tc ∈ 1:$nT
-                    @simd ivdep for tr ∈ 1:$nTl
-                        ari = l_1 * ARs[tr, tc, 1]
-                        Base.Cartesian.@nexprs kc-1 j -> ari = muladd(l_{j+1}, ARs[tr, tc, j+1], ari)
-                        Sigfull[ tr + sigrow, tc + sigcol] = ari
-                    end
-                end
-            end
-        end
-        end=#
-#        sp, (Sigfull,(∂ARs,L), (ARs,L))
         sp, (Sigfull, Covariance_LAR_AR_Adjoint(∂ARs,L), Covariance_LAR_L_Adjoint(ARs,L))
-#        sp + (252^2*24), (Sigfull, Covariance_LAR_AR_Adjoint(∂ARs,L), Covariance_LAR_L_Adjoint(ARs,L))
     end
 end
 
-@generated function Base.:*(C::AbstractMatrix{T},
-                adj::Covariance_LAR_AR_Adjoint{K, nT, T, nTP}
-                ) where {K, nT, T, nTP}
+@generated function Base.:*(
+    C::AbstractMatrix{T},
+    adj::Covariance_LAR_AR_Adjoint{K, nT, T, nTP}
+) where {K, nT, T, nTP}
     # C is a DynamicCovarianceMatrix
     Wm1 = VectorizationBase.pick_vector_width(T)-1 
     KL = (K+Wm1) & ~Wm1
-#    outtup = Expr(:tuple, [Expr(:call,:*,2,Symbol(:κ_,k)) for k ∈ 1:K]..., [zero(T) for k ∈ K+1:KL]...)
     outtup = Expr(:tuple, [Symbol(:κ_,k) for k ∈ 1:K]..., [zero(T) for k ∈ K+1:KL]...)
     quote
         $(Expr(:meta,:inline))
         # Calculate all in 1 pass?
-        # ∂C∂ρ = MutableFixedSizeVector{K,T}(undef)
-        # Cstride = stride(C,2)
         L = adj.LKJ
         ∂ARs = adj.∂ARs
-#        println("Reverse pass, partial cov:")
-#        display(C)
-#        println("Reverse pass, using ∂ARs:")
-#        display(∂ARs)
-#        println("Reverse pass, L:")
-#        display(L)
-#        @show Array(∂ARs)[1:6,1:6,:]
-
         Base.Cartesian.@nexprs $K j -> κ_j = zero($T)
         @inbounds begin
             Base.Cartesian.@nexprs $K kc -> begin
                 # Diagonal block
-#                kr = kc-1
                 Base.Cartesian.@nexprs kc j -> l_j = L[kc,j]^2
                 ccol = crow = $nT*(kc-1)
                 for tc ∈ 1:$nT
@@ -879,28 +677,15 @@ end
     # C is a DynamicCovarianceMatrix
     Wm1 = VectorizationBase.pick_vector_width(T)-1 
     KL = (K+Wm1) & ~Wm1
-#    outtup = Expr(:tuple, [Expr(:call,:*,2,Symbol(:κ_,k)) for k ∈ 1:K]..., [zero(T) for k ∈ K+1:KL]...)
-#    outtup = Expr(:tuple, [Symbol(:κ_,k) for k ∈ 1:K]..., [zero(T) for k ∈ K+1:KL]...)
     quote
         $(Expr(:meta,:inline))
         # Calculate all in 1 pass?
-        # ∂C∂ρ = MutableFixedSizeVector{K,T}(undef)
-        # Cstride = stride(C,2)
         L = adj.LKJ
         ∂ARs = adj.∂ARs
-#        println("Reverse pass, partial cov:")
-#        display(C)
-#        println("Reverse pass, using ∂ARs:")
-#        display(∂ARs)
-#        println("Reverse pass, L:")
-#        display(L)
-#        @show Array(∂ARs)[1:6,1:6,:]
-
         Base.Cartesian.@nexprs $K j -> κ_j = zero($T)
         @inbounds begin
             Base.Cartesian.@nexprs $K kc -> begin
                 # Diagonal block
-#                kr = kc-1
                 Base.Cartesian.@nexprs kc j -> l_j = L[kc,j]^2
                 ccol = crow = $nT*(kc-1)
                 for tc ∈ 1:$nT
@@ -930,87 +715,19 @@ end
             b = PaddedMatrices.PtrVector{$K,$T,$KL}(pointer(sp,$T))
             Base.Cartesian.@nexprs $K k -> b[k] = κ_k
         end
-        #        ConstantFixedSizeVector{$K,$T,$KL,$KL}( $outtup )'
         sp + $(VectorizationBase.align(KL*sizeof(T))), b'
     end
 end
 
-#=
-
-@generated function Base.:*(
+function Base.:*(
     C::AbstractMatrix{T},
-    adj::Covariance_LAR_AR_Adjoint{K, nT, T, nTP}
+    adj::Covariance_LAR_L_Adjoint{K, nT, T, nTP}
 ) where {K, nT, T, nTP}
-    # C is a DynamicCovarianceMatrix
-    Wm1 = VectorizationBase.pick_vector_width(T)-1 
-    KL = (K+Wm1) & ~Wm1
-#    outtup = Expr(:tuple, [Expr(:call,:*,2,Symbol(:κ_,k)) for k ∈ 1:K]..., [zero(T) for k ∈ K+1:KL]...)
-    quote
-        $(Expr(:meta,:inline))
-        # Calculate all in 1 pass?
-        # ∂C∂ρ = MutableFixedSizeVector{K,T}(undef)
-        # Cstride = stride(C,2)
-        L = adj.LKJ
-        ∂ARs = adj.∂ARs
-        Base.Cartesian.@nexprs $K j -> κ_j = zero($T)
-        @inbounds begin
-            Base.Cartesian.@nexprs $K kc -> begin
-                # Diagonal block
-#                kr = kc-1
-                Base.Cartesian.@nexprs kc j -> l_j = L[kc,j]^2
-                ccol = crow = $nT*(kc-1)
-                for tc ∈ 1:$nT
-                    tco = tc + ccol
-                    for tr ∈ 1:tc-1
-                        cij = C[tr + crow, tco]
-                        Base.Cartesian.@nexprs kc j -> begin
-                            κ_j = Base.FastMath.add_fast(Base.FastMath.mul_fast(cij,l_j,∂ARs[tr,tc,j]), κ_j)
-                        end
-                    end
-                end
-
-                for kr ∈ kc:$(K-1)
-                    Base.Cartesian.@nexprs kc j -> l_j = L[kc,j]*L[kr+1,j]
-                    ccol = $nT*kr; crow = $nT*(kc-1)
-                    for tc ∈ 1:$nT
-                        tco = tc + ccol
-                        for tr ∈ 1:$nT
-                            cij = C[tr + crow, tco]
-                            Base.Cartesian.@nexprs kc j -> begin
-                                κ_j = Base.FastMath.add_fast(Base.FastMath.mul_fast(cij,l_j,∂ARs[tr,tc,j]), κ_j)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        (sp, out) = PtrVector{$K,$T}(sp)
-        Base.Cartesian.@nexprs $K k -> out[k] = $(T(2))*κ_k
-        #        ConstantFixedSizeVector{$K,$T,$KL,$KL}( $outtup )
-        sp, out'
-    end
-end
-
-=#
-
-
-function Base.:*(C::AbstractMatrix{T},
-                    adj::Covariance_LAR_L_Adjoint{K, nT, T, nTP}
-                ) where {K, nT, T, nTP}
-
     ∂LKJ = StructuredMatrices.MutableLowerTriangularMatrix{K,T}(undef)
-    
-        # $(Expr(:meta,:inline))
-
-        # ∂LKJ = MutableLowerTriangualrMatrix{$K,$T}(undef)
-        # ∂LKJ = $∂LKJ
     LKJ = adj.LKJ
     ARs = adj.ARs
-
     # Outer loops are for ∂lkj
     for kc ∈ 1:K
-        # coffset = (kc-1)*stride(C,2)
-        # AR[:,:,kc]
         @inbounds for kr ∈ kc:K
             ∂lkj = zero(T)
             # Move left
@@ -1027,9 +744,6 @@ function Base.:*(C::AbstractMatrix{T},
             lkj = 2LKJ[kr,kc]
             for tc ∈ 1:nT
                 # C: kr = row, lr = col
-#                @fastmath for tr ∈ 1:nT
-#                    ∂lkj += lkj * ARs[tr,tc,kc] * C[tr + (kr-1)*nT,tc + (kr-1)*(nT)] #* (tc == tr ? T(0.5) : T(1.0))
-#                end
                 @fastmath ∂lkj += lkj * ARs[tc,tc,kc] * C[tc + (kr-1)*nT,tc + (kr-1)*(nT)]# * T(0.5)  #* (tc == tr ? T(0.5) : T(1.0))
                 @fastmath for tr ∈ tc+1:nT
                     ∂lkj += lkj * ARs[tr,tc,kc] * C[tr + (kr-1)*nT,tc + (kr-1)*(nT)] #* (tc == tr ? T(0.5) : T(1.0))
@@ -1059,17 +773,12 @@ function Base.:*(
 
     (sp,∂LKJ) = StructuredMatrices.PtrLowerTriangularMatrix{K,T}(sp)
     
-        # $(Expr(:meta,:inline))
-
-        # ∂LKJ = MutableLowerTriangualrMatrix{$K,$T}(undef)
-        # ∂LKJ = $∂LKJ
     LKJ = adj.LKJ
     ARs = adj.ARs
 
     # Outer loops are for ∂lkj
     for kc ∈ 1:K
         # coffset = (kc-1)*stride(C,2)
-        # AR[:,:,kc]
         @inbounds for kr ∈ kc:K
             ∂lkj = zero(T)
             # Move left
@@ -1086,9 +795,6 @@ function Base.:*(
             lkj = 2LKJ[kr,kc]
             for tc ∈ 1:nT
                 # C: kr = row, lr = col
-#                @fastmath for tr ∈ 1:nT
-#                    ∂lkj += lkj * ARs[tr,tc,kc] * C[tr + (kr-1)*nT,tc + (kr-1)*(nT)] #* (tc == tr ? T(0.5) : T(1.0))
-#                end
                 @fastmath ∂lkj += lkj * ARs[tc,tc,kc] * C[tc + (kr-1)*nT,tc + (kr-1)*(nT)] #* (tc == tr ? T(0.5) : T(1.0))
                 @fastmath for tr ∈ tc+1:nT
                     ∂lkj += lkj * ARs[tr,tc,kc] * C[tr + (kr-1)*nT,tc + (kr-1)*(nT)] #* (tc == tr ? T(0.5) : T(1.0))
