@@ -27,12 +27,12 @@ end
 @inline FixedSizeCovarianceMatrix(::Val{M}, ::Type{T}) where {M,T} = MutableFixedSizeCovarianceMatrix{M,T}(undef)
 @inline FixedSizeCovarianceMatrix(sp::StackPointer, ::Val{M}, ::Type{T}) where {M,T} = PtrFixedSizeCovarianceMatrix{M,T}(sp)
 
-
 #DynamicCovarianceMatrix{T}(sp::StackPointer, ::UndefInitializer, N) where {T} = DynamicCovarianceMatrix{T}(sp, N)
 
 Base.pointer(A::PtrFixedSizeCovarianceMatrix) = A.ptr
 Base.unsafe_convert(::Type{Ptr{T}}, A::PtrFixedSizeCovarianceMatrix{M,T}) where {M,T} = A.ptr
 Base.pointer(A::MutableFixedSizeCovarianceMatrix{M,T}) where {M,T} = Base.unsafe_convert(Ptr{T}, pointer_from_objref(A))
+PtrFixedSizeCovarianceMatrix(S::MutableFixedSizeCovarianceMatrix{M,T,R,L}) where {M,T,R,L} = PtrFixedSizeCovarianceMatrix{M,T,R,L}(pointer(S))
 Base.unsafe_convert(::Type{Ptr{T}}, A::MutableFixedSizeCovarianceMatrix{M,T}) where {M,T} = Base.unsafe_convert(Ptr{T}, pointer_from_objref(A))
 LinearAlgebra.checksquare(A::AbstractFixedSizeCovarianceMatrix{M}) where {M} = M
 @inbounds Base.stride(A::AbstractFixedSizeCovarianceMatrix{M,T,R}, i::Integer) where {M,T,R} = (1, R)[i]
@@ -70,7 +70,15 @@ struct MissingDataVector{T,S,M,R,L}
     ∂Σ::MutableFixedSizeCovarianceMatrix{M,T,R,L} # ∂Σ, rather than stack pointer, so that we can guarantee elements are 0
 end
 struct MissingDataVectorAdjoint{T,S,M,R,L}#,VT}
-    mdv::MissingDataVector{T,S,M,R,L}#,VT}
+    # mdv::MissingDataVector{T,S,M,R,L}#,VT}
+    indices::PtrVector{S,Int,S,false}
+    ∂Σ::PtrFixedSizeCovarianceMatrix{M,T,R,L}
+end
+function MissingDataVectorAdjoint(mdv::MissingDataVector{T,S,M,R,L}) where {T,S,M,R,L}
+    MissingDataVectorAdjoint{T,S,M,R,L}(
+        PtrVector{S,Int,S}(pointer(mdv.indices)),
+        PtrFixedSizeCovarianceMatrix(mdv.∂Σ),
+    )
 end
 function MissingDataVector{T}(bitmask) where {T}
     MissingDataVector{T}(PaddedMatrices.MutableFixedSizeVector, bitmask)
@@ -268,8 +276,8 @@ end
 end
 
 function Base.:*(A::AbstractCovarianceMatrix, mdv::MissingDataVectorAdjoint)
-    ∂Σ = mdv.mdv.∂Σ
-    mask!(∂Σ, A, mdv.mdv.indices)
+    ∂Σ = mdv.∂Σ
+    mask!(∂Σ, A, mdv.indices)
     ∂Σ
 end
 @generated function Base.:*(
@@ -278,7 +286,7 @@ end
 ) where {K,T,S,M,V<:PaddedMatrices.AbstractMutableFixedSizeVector{S,T}}
     quote
         Base.Cartesian.@nexprs $K k -> (b_k = zeros(MutableFixedSizeVector{$M,$T}); a_k = a[k])
-        inds = mdv.mdv.indices
+        inds = mdv.indices
         @inbounds for s ∈ 1:$S
             i = inds[s]
             Base.Cartesian.@nexprs $K k -> b_k[i] = a_k[s]
@@ -303,7 +311,7 @@ end
             b_k = PtrVector{$M,$T,$M}(pointer(sp,$T) + $(sizeof(T)*M) * (k-1))
             a_k = a[k]
         end
-        inds = mdv.mdv.indices
+        inds = mdv.indices
         @inbounds for s ∈ 1:$S
             i = inds[s]
             Base.Cartesian.@nexprs $K k -> b_k[i] = a_k[s]
@@ -317,7 +325,7 @@ end
                 times::ConstantFixedSizeVector{nT}, workspace
             ) where {K,T,nT}
     Wm1 = VectorizationBase.pick_vector_width(nT, T) - 1
-    nTl = (nT + Wm1) & ~Wm1
+    nTl = PaddedMatrices.calc_padding(nT, T) #(nT + Wm1) & ~Wm1
     quote
         ARs = workspace.ARs
         @fastmath @inbounds for k ∈ 1:$K
@@ -373,7 +381,7 @@ end
 ) where {K,T,nT}
     # We will assume rho > 0
     Wm1 = VectorizationBase.pick_vector_width(nT, T) - 1
-    nTl = (nT + Wm1) & ~Wm1
+    nTl = PaddedMatrices.calc_padding(nT, T) #(nT + Wm1) & ~Wm1
     quote
         # nT = length(times) + 1
         ARs = workspace.ARs
@@ -430,16 +438,14 @@ end
     W, Wshift = VectorizationBase.pick_vector_width_shift(nT, T)
     Wm1 = W - 1
     V = Vec{W,T}
-    nTl = (nT + Wm1) & ~Wm1
+    nTl = PaddedMatrices.calc_padding(nT, T) #(nT + Wm1) & ~Wm1
     KT = K*nT
-    # We want it to be a multiple of 8, and we don't want nTl bleeding over the edge
-    KTR = ( KT + nTl - nT + Wm1 ) & ~Wm1
     T_size = sizeof(T)
     quote
         # only Sigfull escapes, so we allocate it first
         # and return the stack pointer pointing to its end.
         sp, Sigfull = PtrFixedSizeCovarianceMatrix{$KT,$T}(sp)
-        ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3,$nTl}(pointer(sp, $T))
+        ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3}(pointer(sp, $T))
 
         ptr_time = pointer(times)
         ptr_ARs = pointer(ARs)
@@ -517,10 +523,8 @@ end
     W, Wshift = VectorizationBase.pick_vector_width_shift(nT, T)
     Wm1 = W - 1
     V = Vec{W,T}
-    nTl = (nT + Wm1) & ~Wm1
+    nTl = PaddedMatrices.calc_padding(nT, T)
     KT = K*nT
-    # We want it to be a multiple of 8, and we don't want nTl bleeding over the edge
-    KTR = ( KT + nTl - nT + Wm1 ) & ~Wm1
     T_size = sizeof(T)
     sym = true
     ARquote = if SIMD && sym
@@ -591,8 +595,8 @@ end
         end
     end
     quote
-        sp,  ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3,$nTl}(sp)
-        sp, ∂ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3,$nTl}(sp)
+        sp,  ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3}(sp)
+        sp, ∂ARs = PaddedMatrices.PtrArray{Tuple{$nT,$nT,$K},$T,3}(sp)
         ptr_time = pointer(times)
         ptr_ARs = pointer(ARs)
         ptr_∂ARs = pointer(∂ARs)
@@ -628,7 +632,7 @@ end
 ) where {K, nT, T, nTP}
     # C is a DynamicCovarianceMatrix
     Wm1 = VectorizationBase.pick_vector_width(T)-1 
-    KL = (K+Wm1) & ~Wm1
+    KL = PaddedMatrices.calc_padding(K, T) #(K+Wm1) & ~Wm1
     outtup = Expr(:tuple, [Symbol(:κ_,k) for k ∈ 1:K]..., [zero(T) for k ∈ K+1:KL]...)
     quote
         $(Expr(:meta,:inline))

@@ -63,9 +63,11 @@ function load_transformations!(
     N = length(shape)
     scalar = iszero(N)
     M = prod(shape)
-    X = similar(shape); X[1] = 1
-    for n in 2:N
-        X[n] = X[n-1] * shape[n]
+    if !scalar
+        X = similar(shape); X[1] = 1
+        for n in 2:N
+            X[n] = X[n-1] * shape[n]
+        end
     end
     outinit = if scalar
         quote end
@@ -224,7 +226,7 @@ function load_transformations!(
         else
             isym = gensym(:i)
             if partial
-                invlogitinits = if sp isa Symbol
+                invlogitinits = if sptr isa Symbol
                     quote
                         $outinit
                         $invlogit = $m.PtrVector{$M,$T}(pointer($sptr,$T))
