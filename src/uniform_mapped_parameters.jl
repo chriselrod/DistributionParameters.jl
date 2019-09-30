@@ -1,8 +1,8 @@
 
 struct RealFloat{B,T} <: Real end
 struct RealArray{S,B,T,N,X,L} <: PaddedMatrices.AbstractMutableFixedSizeArray{S,T,N,X,L} end
-const RealVector{M,B,T,L} = RealArray{Tuple{M},B,T,1,L,L}
-const RealMatrix{M,N,B,T,L} = RealArray{Tuple{M,N},B,T,2,M,L}
+const RealVector{M,B,T,L} = RealArray{Tuple{M},B,T,1,Tuple{1},L}
+const RealMatrix{M,N,B,T,L} = RealArray{Tuple{M,N},B,T,2,Tuple{1,M},L}
 
 PaddedMatrices.type_length(::Type{<:RealFloat}) = 1
 

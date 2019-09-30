@@ -131,7 +131,7 @@ function LKJ_adjoint_mul_quote(Mp1,T,sp::Bool = false)
     #     push!(outtup.args, PaddedMatrices.sym(:∂lkj_∂z, p, p) )
     # end
     lkj_l = StructuredMatrices.binomial2(Mp1)
-    lkj_l_full = PaddedMatrices.pick_L(lkj_l, T)
+    lkj_l_full = PaddedMatrices.calc_padding(lkj_l, T)
     if sp
         push!(q.args, :(sptr = pointer(sp, $T); out = PtrVector{$lkj_l,$T}(sptr)))
         ind = 0
@@ -524,7 +524,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
             end
         end
         Lbase = length(jacobian_tuple.args)
-        Ladj = PaddedMatrices.pick_L(Lbase, T)
+        Ladj = PaddedMatrices.calc_padding(Lbase, T)
         for i ∈ Lbase+1:Ladj
             push!(jacobian_tuple.args, zero(T))
         end
