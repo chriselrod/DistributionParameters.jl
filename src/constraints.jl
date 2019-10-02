@@ -66,7 +66,7 @@ function load_transformations!(
     if !scalar
         X = similar(shape); X[1] = 1
         for n in 2:N
-            X[n] = X[n-1] * shape[n]
+            X[n] = X[n-1] * shape[n-1]
         end
     end
     outinit = if scalar
