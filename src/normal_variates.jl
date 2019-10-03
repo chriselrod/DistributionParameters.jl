@@ -2,9 +2,9 @@ using PaddedMatrices: DynamicPaddedVector, DynamicPaddedMatrix, AbstractPaddedMa
 using PaddedMatrices: StackPointer, AbstractMutableFixedSizeArray
 
 abstract type AbstractFixedSizeCovarianceMatrix{M,T,R,L} <: PaddedMatrices.AbstractMutableFixedSizeMatrix{M,M,T,R,L} end
-mutable struct MutableFixedSizeCovarianceMatrix{M,T,R,L} <: AbstractFixedSizeCovarianceMatrix{M,T,R,L}
+mutable struct FixedSizeCovarianceMatrix{M,T,R,L} <: AbstractFixedSizeCovarianceMatrix{M,T,R,L}
     data::NTuple{L,T}
-    MutableFixedSizeCovarianceMatrix{M,T,R,L}(::UndefInitializer) where {M,T,R,L} = new{M,T,R,L}()
+    FixedSizeCovarianceMatrix{M,T,R,L}(::UndefInitializer) where {M,T,R,L} = new{M,T,R,L}()
 end
 struct PtrFixedSizeCovarianceMatrix{M,T,R,L} <: AbstractFixedSizeCovarianceMatrix{M,T,R,L}
     ptr::Ptr{T}
@@ -19,25 +19,25 @@ end
     L = R * M
     :(sp + $(sizeof(T)*L), PtrFixedSizeCovarianceMatrix{$M,$T,$R,$L}(pointer(sp, $T)))
 end
-@generated function MutableFixedSizeCovarianceMatrix{M,T}(::UndefInitializer) where {M,T}
+@generated function FixedSizeCovarianceMatrix{M,T}(::UndefInitializer) where {M,T}
     R = M
     L = R * M
-    :(MutableFixedSizeCovarianceMatrix{$M,$T,$R,$L}(undef))
+    :(FixedSizeCovarianceMatrix{$M,$T,$R,$L}(undef))
 end
-@inline FixedSizeCovarianceMatrix(::Val{M}, ::Type{T}) where {M,T} = MutableFixedSizeCovarianceMatrix{M,T}(undef)
+@inline FixedSizeCovarianceMatrix(::Val{M}, ::Type{T}) where {M,T} = FixedSizeCovarianceMatrix{M,T}(undef)
 @inline FixedSizeCovarianceMatrix(sp::StackPointer, ::Val{M}, ::Type{T}) where {M,T} = PtrFixedSizeCovarianceMatrix{M,T}(sp)
 
 #DynamicCovarianceMatrix{T}(sp::StackPointer, ::UndefInitializer, N) where {T} = DynamicCovarianceMatrix{T}(sp, N)
 
 Base.pointer(A::PtrFixedSizeCovarianceMatrix) = A.ptr
 Base.unsafe_convert(::Type{Ptr{T}}, A::PtrFixedSizeCovarianceMatrix{M,T}) where {M,T} = A.ptr
-Base.pointer(A::MutableFixedSizeCovarianceMatrix{M,T}) where {M,T} = Base.unsafe_convert(Ptr{T}, pointer_from_objref(A))
-PtrFixedSizeCovarianceMatrix(S::MutableFixedSizeCovarianceMatrix{M,T,R,L}) where {M,T,R,L} = PtrFixedSizeCovarianceMatrix{M,T,R,L}(pointer(S))
-Base.unsafe_convert(::Type{Ptr{T}}, A::MutableFixedSizeCovarianceMatrix{M,T}) where {M,T} = Base.unsafe_convert(Ptr{T}, pointer_from_objref(A))
+Base.pointer(A::FixedSizeCovarianceMatrix{M,T}) where {M,T} = Base.unsafe_convert(Ptr{T}, pointer_from_objref(A))
+PtrFixedSizeCovarianceMatrix(S::FixedSizeCovarianceMatrix{M,T,R,L}) where {M,T,R,L} = PtrFixedSizeCovarianceMatrix{M,T,R,L}(pointer(S))
+Base.unsafe_convert(::Type{Ptr{T}}, A::FixedSizeCovarianceMatrix{M,T}) where {M,T} = Base.unsafe_convert(Ptr{T}, pointer_from_objref(A))
 LinearAlgebra.checksquare(A::AbstractFixedSizeCovarianceMatrix{M}) where {M} = M
 @inbounds Base.stride(A::AbstractFixedSizeCovarianceMatrix{M,T,R}, i::Integer) where {M,T,R} = (1, R)[i]
-function Base.zeros(::Type{<:MutableFixedSizeCovarianceMatrix{M,T}}) where {M,T}
-    A = MutableFixedSizeCovarianceMatrix{M,T}(undef)
+function Base.zeros(::Type{<:FixedSizeCovarianceMatrix{M,T}}) where {M,T}
+    A = FixedSizeCovarianceMatrix{M,T}(undef)
     @inbounds for i ∈ 1:PaddedMatrices.full_length(A)
         A[i] = zero(T)
     end
@@ -66,8 +66,8 @@ Base.getindex(A::DynamicCovarianceMatrix, I...) = A.data[I...]
 const AbstractCovarianceMatrix{T} = Union{AbstractFixedSizeCovarianceMatrix{M,T} where M,DynamicCovarianceMatrix{T}}
 
 struct MissingDataVector{T,S,M,R,L}
-    indices::MutableFixedSizeVector{S,Int,S} # note, indices start from 0
-    ∂Σ::MutableFixedSizeCovarianceMatrix{M,T,R,L} # ∂Σ, rather than stack pointer, so that we can guarantee elements are 0
+    indices::FixedSizeVector{S,Int,S} # note, indices start from 0
+    ∂Σ::FixedSizeCovarianceMatrix{M,T,R,L} # ∂Σ, rather than stack pointer, so that we can guarantee elements are 0
 end
 struct MissingDataVectorAdjoint{T,S,M,R,L}#,VT}
     # mdv::MissingDataVector{T,S,M,R,L}#,VT}
@@ -81,13 +81,13 @@ function MissingDataVectorAdjoint(mdv::MissingDataVector{T,S,M,R,L}) where {T,S,
     )
 end
 function MissingDataVector{T}(bitmask) where {T}
-    MissingDataVector{T}(PaddedMatrices.MutableFixedSizeVector, bitmask)
+    MissingDataVector{T}(PaddedMatrices.FixedSizeVector, bitmask)
 end
 ## Not Type Stable
 function MissingDataVector{T}(::Type{<:PaddedMatrices.AbstractFixedSizeVector}, bitmask) where {T}
-    Σ = zeros(MutableFixedSizeCovarianceMatrix{length(bitmask),T})
+    Σ = zeros(FixedSizeCovarianceMatrix{length(bitmask),T})
     inds = findall(i -> i == 1, bitmask)
-    indices = PaddedMatrices.MutableFixedSizeVector{length(inds),Int}(inds)#::PaddedMatrices.MutableFixedSizeVector
+    indices = PaddedMatrices.FixedSizeVector{length(inds),Int}(inds)#::PaddedMatrices.FixedSizeVector
     MissingDataVector(
         indices, Σ
     )
@@ -177,7 +177,7 @@ function PaddedMatrices.∂getindex( sp::StackPointer, A::DynamicCovarianceMatri
 end
 
 function Base.getindex( A::AbstractFixedSizeCovarianceMatrix{L,T}, mdv::MissingDataVector{T,S,L} ) where {T,S,L}
-    B = MutableFixedSizeCovarianceMatrix{S,T}(undef)
+    B = FixedSizeCovarianceMatrix{S,T}(undef)
     @inbounds subset!( B, A, mdv )
     B
 end
@@ -187,7 +187,7 @@ function Base.getindex( sp::StackPointer, A::AbstractFixedSizeCovarianceMatrix{L
     sp, B
 end
 function PaddedMatrices.∂getindex( A::AbstractFixedSizeCovarianceMatrix{L,T}, mdv::MissingDataVector{T,S,L} ) where {T,S,L}
-    B = MutableFixedSizeCovarianceMatrix{S,T}(undef)
+    B = FixedSizeCovarianceMatrix{S,T}(undef)
     @inbounds subset!( B, A, mdv )
     B, MissingDataVectorAdjoint(mdv)
 end
@@ -202,18 +202,18 @@ function Base.getindex(
     mdv::MissingDataVector{T,S,M}
 ) where {T,S,M}
     inds = mdv.indices
-    b = MutableFixedSizeVector{S,T}(undef)
+    b = FixedSizeVector{S,T}(undef)
     @inbounds for s ∈ 1:S
         b[s] = a[inds[s]]
     end
     b
 end
 function PaddedMatrices.∂getindex(
-    a::AbstractMutableFixedSizeVector{M,T},
+    a::AbstractFixedSizeVector{M,T},
     mdv::MissingDataVector{T,S,M}
 ) where {T,S,M}
     inds = mdv.indices
-    b = MutableFixedSizeVector{S,T}(undef)
+    b = FixedSizeVector{S,T}(undef)
     @inbounds for s ∈ 1:S
         b[s] = a[inds[s]]
     end
@@ -221,7 +221,7 @@ function PaddedMatrices.∂getindex(
 end
 function Base.getindex(
     sp::StackPointer,
-    a::AbstractMutableFixedSizeVector{M,T},
+    a::AbstractFixedSizeVector{M,T},
     mdv::MissingDataVector{T,S,M}
 ) where {T,S,M}
     inds = mdv.indices
@@ -233,7 +233,7 @@ function Base.getindex(
 end
 function PaddedMatrices.∂getindex(
     sp::StackPointer,
-    a::AbstractMutableFixedSizeVector{M,T},
+    a::AbstractFixedSizeVector{M,T},
     mdv::MissingDataVector{T,S,M}
 ) where {T,S,M}
     inds = mdv.indices
@@ -263,7 +263,7 @@ end
     sp::StackPointer,
     a::NTuple{K,V},
     mdv::MissingDataVector{T,S,M}
-) where {T,K,S,M,V<:PaddedMatrices.AbstractMutableFixedSizeVector{M,T}}
+) where {T,K,S,M,V<:PaddedMatrices.AbstractFixedSizeVector{M,T}}
     quote
         inds = mdv.indices
         Base.Cartesian.@nexprs $K k -> (a_k = @inbounds a[k]; (sp, b_k) = PaddedMatrices.PtrVector{$S,$T}(sp))
@@ -283,9 +283,9 @@ end
 @generated function Base.:*(
     a::NTuple{K,V},
     mdv::MissingDataVectorAdjoint{T,S,M}
-) where {K,T,S,M,V<:PaddedMatrices.AbstractMutableFixedSizeVector{S,T}}
+) where {K,T,S,M,V<:PaddedMatrices.AbstractFixedSizeVector{S,T}}
     quote
-        Base.Cartesian.@nexprs $K k -> (b_k = zeros(MutableFixedSizeVector{$M,$T}); a_k = a[k])
+        Base.Cartesian.@nexprs $K k -> (b_k = zeros(FixedSizeVector{$M,$T}); a_k = a[k])
         inds = mdv.indices
         @inbounds for s ∈ 1:$S
             i = inds[s]
@@ -298,7 +298,7 @@ end
     sp::StackPointer,
     a::NTuple{K,V},
     mdv::MissingDataVectorAdjoint{T,S,M}
-) where {K,T,S,M,V<:PaddedMatrices.AbstractMutableFixedSizeVector{S,T}}
+) where {K,T,S,M,V<:PaddedMatrices.AbstractFixedSizeVector{S,T}}
     Wm1 = VectorizationBase.pick_vector_width(M,T) - 1
     total_length = (K*M + Wm1) & + ~Wm1
     quote
@@ -365,11 +365,11 @@ end
 
 
 struct Covariance_LAR_AR_Adjoint{K, nT, T, nTP, L, MFPD<:AbstractMutableFixedSizeArray{Tuple{nT,nT,K},T,3,nTP,L}, LKJ_T <: StructuredMatrices.AbstractLowerTriangularMatrix}
-    ∂ARs::MFPD#MutableFixedSizeArray{Tuple{nT,nT,K},T,3,nTP,L}
+    ∂ARs::MFPD#FixedSizeArray{Tuple{nT,nT,K},T,3,nTP,L}
     LKJ::LKJ_T
 end
 struct Covariance_LAR_L_Adjoint{K, nT, T, nTP, L, MFPD<:AbstractMutableFixedSizeArray{Tuple{nT,nT,K},T,3,nTP,L}, LKJ_T <: StructuredMatrices.AbstractLowerTriangularMatrix}
-    ARs::MFPD#MutableFixedSizeArray{Tuple{nT,nT,K},T,3,nTP,L}
+    ARs::MFPD#FixedSizeArray{Tuple{nT,nT,K},T,3,nTP,L}
     LKJ::LKJ_T
 end
 

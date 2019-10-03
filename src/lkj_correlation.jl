@@ -611,13 +611,13 @@ function load_parameter!(
     log_jac = gensym(:log_jac)
     zsym = gensym(:z) # z ∈ (-1, 1)
     q = quote
-        $zsym = MutableFixedSizeVector{$N,$T}(undef)
+        $zsym = FixedSizeVector{$N,$T}(undef)
         # $log_jac = DistributionParameters.SIMDPirates.vbroadcast(Vec{$W,$T}, zero($T))
         $log_jac = zero($T)
     end
     if partial
-        push!(q.args, :($invlogitout = MutableFixedSizeVector{$L,$T}(undef)))
-        push!(q.args, :($∂invlogitout = MutableFixedSizeVector{$L,$T}(undef)))
+        push!(q.args, :($invlogitout = FixedSizeVector{$L,$T}(undef)))
+        push!(q.args, :($∂invlogitout = FixedSizeVector{$L,$T}(undef)))
     end
     i = gensym(:i)
     loop_body = quote
@@ -719,7 +719,7 @@ function load_parameter!(
     # zsym will be discarded, so we allocate it behind all the data we actually return.
     q = quote
         $zsym = $m.PtrVector{$N,$T}(pointer($sp + $(zsymoffset*sizeof(T)),$T))
-#        $zsym = MutableFixedSizeVector{$N,$T}(undef)
+#        $zsym = FixedSizeVector{$N,$T}(undef)
         # $log_jac = DistributionParameters.SIMDPirates.vbroadcast(Vec{$W,$T}, zero($T))
     end
 #    logjac && push!(q.args, Expr(:(=), log_jac, zero(T)))

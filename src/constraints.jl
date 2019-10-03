@@ -85,7 +85,7 @@ function load_transformations!(
         end
     else
         quote # Do we want to pad these?
-            $out = $m.MutableFixedSizeArray{$(Tuple{shape...}),$T,$N,$(Tuple{X...}),$M}(undef)
+            $out = $m.FixedSizeArray{$(Tuple{shape...}),$T,$N,$(Tuple{X...}),$M}(undef)
         end
     end
     seedout = Symbol("###seed###", out)
@@ -237,8 +237,8 @@ function load_transformations!(
                 else
                     quote
                         $outinit
-                        $invlogit = MutableFixedSizeVector{$M,$T}(undef)
-                        $∂invlogit = MutableFixedSizeVector{$M,$T}(undef)
+                        $invlogit = FixedSizeVector{$M,$T}(undef)
+                        $∂invlogit = FixedSizeVector{$M,$T}(undef)
                     end
                 end
                 push!(fp, invlogitinits)

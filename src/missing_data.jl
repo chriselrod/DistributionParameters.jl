@@ -10,7 +10,7 @@ N: Dimensionality of Array (how many axis?)
 struct MissingDataArray{M,B,T,N,A <: AbstractArray{T,N}}
     data::A
     inds::Vector{CartesianIndex{N}}
-#    inds::MutableFixedSizeVector{M,Int,M}
+#    inds::FixedSizeVector{M,Int,M}
 end
 # Base.CartesianIndices(A::MissingDataArray) = CartesianIndices(A.data)
 
@@ -121,7 +121,7 @@ function load_parameter!(
                 end
             else
                 seedout_init_quote = quote
-                    $seedout_missing = $m.PaddedMatrices.MutableFixedSizeVector{$M,$T,$M}(undef)
+                    $seedout_missing = $m.PaddedMatrices.FixedSizeVector{$M,$T,$M}(undef)
                 end
             end
             ∂gather_quote = quote
