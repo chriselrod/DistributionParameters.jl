@@ -621,39 +621,39 @@ function load_parameter!(
     end
     i = gensym(:i)
     loop_body = quote
-        # $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($(T(0.5)) * $θ[$i]))
-        $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($θ[$i]))
+        # $ninvlogitout = one($T) / (one($T) + $m.SLEEFPirates.exp($(T(0.5)) * $θ[$i]))
+        $ninvlogitout = one($T) / (one($T) + $m.SLEEFPirates.exp($θ[$i]))
     end
     if partial
         push!(loop_body.args, :($invlogitout[$i] = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout[$i] = $ninvlogitout * $invlogitout[$i]))
-        push!(loop_body.args, :($zsym[$i] = SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
-        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout[$i])))
+        push!(loop_body.args, :($zsym[$i] = $m.SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
+        push!(loop_body.args, :($log_jac += $m.SLEEFPirates.log($∂invlogitout[$i])))
     else
         push!(loop_body.args, :($invlogitout = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout = $ninvlogitout * $invlogitout))
-        push!(loop_body.args, :($zsym[$i] = SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
-        push!(loop_body.args, :($log_jac += SLEEFPirates.log($∂invlogitout)))
+        push!(loop_body.args, :($zsym[$i] = $m.SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
+        push!(loop_body.args, :($log_jac += $m.SLEEFPirates.log($∂invlogitout)))
     end
 
-    push!(q.args, quote
-        ProbabilityModels.DistributionParameters.LoopVectorization.@vvectorize $T for $i ∈ 1:$N
+    push!(q.args, macroexpand(m, quote
+        LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$N
             $loop_body
         end
-    end)
+    end))
     lkjlogdetsym = gensym(:lkjlogdetsym)
     if partial
         # lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym, lkjlogdetgrad, lkjjacobian = constrain_lkj_factor_jac_quote(N, T, zsym)
         seedlkj = gensym(:seedlkj)
         lkjlogdetgradsym = gensym(:lkjlogdetgrad)
         lkjjacobiansym = gensym(:lkjjacobian)
-        push!(second_pass, quote
+        push!(second_pass, macroexpand(m, quote
               $seedlkj = ($(Symbol("###seed###", out)) * $lkjjacobiansym).parent
-            LoopVectorization.@vvectorize for $i ∈ 1:$L
+            LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$L
                 $∂θ[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
             end
             $∂θ += $N
-        end)
+        end))
         push!(q.args, quote
             # $zsym = ConstantFixedSizeVector{$M}($mv)
             # $lkjconstrain_q
@@ -682,7 +682,7 @@ function load_parameter!(
 #            target += ($log_jac + $lkjlogdetsym)
         end)
     end
-    logjac && push!(q.args, :(target = $m.SIMDPirates.vadd(target, $log_jac + $lkjlogdetsym)))
+    logjac && push!(q.args, :(target = $m.vadd(target, $log_jac + $lkjlogdetsym)))
     # push!(q.args, :(@show $zsym))
 
     push!(first_pass, q)
@@ -736,16 +736,16 @@ function load_parameter!(
         push!(loop_body.args, :($invlogitout[$i] = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout[$i] = $ninvlogitout * $invlogitout[$i]))
         push!(loop_body.args, :($zsym[$i] = $m.SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
-        logjac && push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂invlogitout[$i]))))
+        logjac && push!(loop_body.args, :(target = $m.vadd(target, $m.SLEEFPirates.log($∂invlogitout[$i]))))
     else
         push!(loop_body.args, :($invlogitout = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout = $ninvlogitout * $invlogitout))
         push!(loop_body.args, :($zsym[$i] = $m.SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
-        logjac && push!(loop_body.args, :(target = vadd(target, $m.SLEEFPirates.log($∂invlogitout))))
+        logjac && push!(loop_body.args, :(target = $m.vadd(target, $m.SLEEFPirates.log($∂invlogitout))))
     end
 
     vloop_quote = quote
-        LoopVectorization.@vvectorize $T for $i ∈ 1:$N
+        LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$N
             $loop_body
         end
     end
@@ -753,11 +753,6 @@ function load_parameter!(
 #    println(vloop)
 #    println("\n\n\n\n\n")
     push!(q.args, macroexpand(m, vloop_quote))
-    #push!(q.args, macroexpand(m, quote
-   #     LoopVectorization.@vvectorize $T for $i ∈ 1:$L
-  #          $loop_body
- #       end
-#    end))
     lkjlogdetsym = gensym(:lkjlogdetsym)
     if partial
         # lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym, lkjlogdetgrad, lkjjacobian = constrain_lkj_factor_jac_quote(N, T, zsym)
@@ -769,7 +764,7 @@ function load_parameter!(
               ($sp, $seedlkjgensym) = $sp * $(Symbol("###seed###", out)) * $lkjjacobiansym
               $seedlkj = $seedlkjgensym.parent
               $(macroexpand(m, quote
-                            LoopVectorization.@vvectorize for $i ∈ 1:$N
+                            LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$N
                             $∂θ[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
                             end
                             end))
@@ -795,11 +790,11 @@ function load_parameter!(
             ($sp, ($out, $lkjlogdetsym)) = DistributionParameters.lkj_constrain($sp, $zsym, Val{$(!exportparam)}())
             $θ += $N
             # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
-#            target = $m.SIMDPirates.vadd(target, $log_jac + $lkjlogdetsym)
+#            target = $m.SIMDPirates.$m.vadd(target, $log_jac + $lkjlogdetsym)
 #            target += ($log_jac + $lkjlogdetsym)
         end)
     end
-    logjac && push!(q.args, :( target = vadd(target, $lkjlogdetsym)))
+    logjac && push!(q.args, :( target = $m.vadd(target, $lkjlogdetsym)))
 
     # push!(q.args, :(@show $zsym))
 
