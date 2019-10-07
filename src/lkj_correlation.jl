@@ -405,7 +405,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
         lkj_length = VectorizationBase.align(binomial2(Mp1+1),T)
         lkjsym = gensym(:LKJ)
         push!(q.args, :($lkjsym = PtrLKJCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T))))
-        push!(q.args, :(sp += $(sizeof(T)*lkj_length)))
+        push!(q.args, :(sp += $(VectorizationBase.align(sizeof(T)*lkj_length))))
         i = 0
         for mc ∈ 1:Mp1
             i += 1
@@ -423,12 +423,10 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
 #        for i ∈ LKJ_L1+1:LKJ_L
 #            push!(output.args, zero(T))
 #        end
-
-
         ∂logdetsym = gensym(:∂logdet)
         bin2M = binomial2(M+1)
         push!(q.args, :($∂logdetsym = PtrVector{$bin2M,$T,$bin2M}(pointer(sp, $T))))
-        push!(q.args, :(sp += $(sizeof(T)*bin2M)))
+        push!(q.args, :(sp += $(VectorizationBase.align(sizeof(T)*bin2M))))
         i = 0
         for mc ∈ 1:M
             i += 1
@@ -447,7 +445,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
         jacobiansym = gensym(:jacobian)
         Ladj = DistributionParameters.lkj_adjoint_length(M)
         push!(q.args, :($jacobiansym = PtrLKJCholeskyConstraintAdjoint{$Mp1,$T,$Ladj}(pointer(sp,$T))))
-        push!(q.args, :(sp += $(Ladj*sizeof(T))))
+        push!(q.args, :(sp += $(VectorizationBase.align(Ladj*sizeof(T)))))
         # diagonal block of lkj
         i = 0
         for mp ∈ 1:M
@@ -714,7 +712,7 @@ function load_parameter!(
     zsym = gensym(:z) # z ∈ (-1, 1)
     zsymoffset = binomial2(M+1)
     if partial
-        zsymoffset += binomial2(M-1) + lkj_adjoint_length(M-1)
+        zsymoffset += VectorizationBase.align(max(2L,binomial2(M-1) + lkj_adjoint_length(M-1)),T)
     end
     # zsym will be discarded, so we allocate it behind all the data we actually return.
     q = quote

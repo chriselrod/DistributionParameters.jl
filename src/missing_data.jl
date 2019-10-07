@@ -1,5 +1,6 @@
 
 
+abstract type AbstractMissingDataArray{M,B,T,N,A <: AbstractArray{T,N}} end
 """
 Parameters are:
 M: number Missing
@@ -7,18 +8,21 @@ B: Bounds
 T: DataType
 N: Dimensionality of Array (how many axis?)
 """
-struct MissingDataArray{M,B,T,N,A <: AbstractArray{T,N}}
+struct MissingDataArray{M,B,T,N,A} <: AbstractMissingDataArray{M,B,T,N,A}
     data::A
     inds::Vector{CartesianIndex{N}}
-#    inds::FixedSizeVector{M,Int,M}
+end
+struct ThreadedMissingDataArray{M,B,T,N,A} <: AbstractMissingDataArray{M,B,T,N,A}
+    data::Vector{A}
+    inds::Vector{CartesianIndex{N}}
 end
 # Base.CartesianIndices(A::MissingDataArray) = CartesianIndices(A.data)
 
-function parameter_names(::Type{<:MissingDataArray{M}}, s::Symbol) where {M}
+function parameter_names(::Type{<:AbstractMissingDataArray{M}}, s::Symbol) where {M}
     ss = strip_hashtags(s) * "_missing_#"
     [ss * string(m) for m ∈ 1:M]
 end
-function parameter_names(A::MissingDataArray{M}, s::Symbol) where {M}
+function parameter_names(A::AbstractMissingDataArray{M}, s::Symbol) where {M}
     out = Vector{String}(undef,M)
     # ci = CartesianIndices(A)
     inds = A.inds
@@ -34,10 +38,10 @@ function parameter_names(A::MissingDataArray{M}, s::Symbol) where {M}
     out
 end
 
-PaddedMatrices.type_length(::MissingDataArray{M}) where {M} = M
-PaddedMatrices.type_length(::Type{<:MissingDataArray{M}}) where {M} = M
-PaddedMatrices.param_type_length(::MissingDataArray{M}) where {M} = M
-PaddedMatrices.param_type_length(::Type{<:MissingDataArray{M}}) where {M} = M
+PaddedMatrices.type_length(::AbstractMissingDataArray{M}) where {M} = M
+PaddedMatrices.type_length(::Type{<:AbstractMissingDataArray{M}}) where {M} = M
+PaddedMatrices.param_type_length(::AbstractMissingDataArray{M}) where {M} = M
+PaddedMatrices.param_type_length(::Type{<:AbstractMissingDataArray{M}}) where {M} = M
 
 """
 This function is not type stable.
@@ -48,7 +52,7 @@ function maybe_missing(A::AA) where {T,N,AA <: AbstractArray{Union{Missing,T},N}
     l, u = extrema(skipmissing(A))
     lb = l > 0 ? zero(T) : -typemax(T)
     ub = u < 0 ? zero(T) :  typemax(T)
-    convert(MissingDataArray{M,Bounds(lb,ub)}, A)
+    Threads.nthreads() > 1 ? convert(ThreadedMissingDataArray{M,Bounds(lb,ub)}, A) : convert(MissingDataArray{M,Bounds(lb,ub)}, A)
 end
 maybe_missing(A::AbstractArray) = A
 
@@ -69,8 +73,31 @@ function Base.convert(::Type{<:MissingDataArray{M,B}}, A::AA) where {M,B,T,N,AA 
 end
 
 
+function Base.convert(::Type{<:ThreadedMissingDataArray{M}}, A::AbstractArray{Union{Missing,T}}) where {M,T}
+    convert(ThreadedMissingDataArray{M,Bounds(typemin(T),typemax(T))}, A)
+end
+function Base.convert(::Type{<:ThreadedMissingDataArray{M,B}}, A::AA) where {M,B,T,N,AA <: AbstractArray{Union{Missing,T},N}}
+#    M = sum(ismissing, A)
+    #    M == 0 &&
+    data = similar(A, Float64)
+    ptr_A = Base.unsafe_convert(Ptr{T}, pointer(A)) # is this necessary?
+    LoopVectorization.@vvectorize for i ∈ eachindex(A)
+        data[i] = ptr_A[i]
+    end
+    nthreads = Threads.nthreads()
+    datav = Vector{tyepof(data)}(undef, nthreads)
+    datav[1] = data
+    Threads.@threads for n in 2:nthreads
+        datav[n] = copy(data)
+    end
+    MissingDataArray{M,B,T,N,typeof(data)}(
+        datav, findall(ismissing, A)
+    )
+end
+
+
 function load_missing_as_vector!(
-    first_pass, second_pass, out, ::Type{<:MissingDataArray{M,B,T}}, partial::Bool = false,
+    first_pass, second_pass, out, ::Type{<:AbstractMissingDataArray{M,B,T}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
 ) where {M,B,T}
     load_parameter!(
@@ -80,16 +107,20 @@ end
 
 
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{<:MissingDataArray{M,B,T}}, partial::Bool = false,
+    first_pass, second_pass, out, ::Type{MA}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, copyexport::Bool = false
-) where {M,B,T}
+) where {M,B,T,MA <: AbstractMissingDataArray{M,B,T}}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     out_missing = Symbol("##missing##", out)
     out_incomplete = Symbol("##incomplete##", out)
     out_incompleteinds = Symbol("##incompleteinds##", out)
     push!(first_pass, :($out_incompleteinds = $out_incomplete.inds))
-    push!(first_pass, :($out = $out_incomplete.data))
+    if MA <: ThreadedMissingDataArray
+        push!(first_pass, :($out = $out_incomplete.data[Threads.threadid()]))
+    else
+        push!(first_pass, :($out = $out_incomplete.data))
+    end
     seedout = Symbol("###seed###", out)
     seedoutextract = Symbol("###seed###extract", out)
     seedout_missing = Symbol("###seed###", out_missing)
@@ -146,11 +177,8 @@ function load_parameter!(
     if partial && sptr isa Symbol
         push!(second_pass, :($sptr = $tempstackptr))
     end
-#    push!(first_pass, :($out = $out_missing.data))
     nothing
 end
-
-
 
 
 
