@@ -5,14 +5,14 @@ using StructuredMatrices: binomial2
 ### Data layout
 mutable struct CorrCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
     data::NTuple{L,T}
-    CorrCholeksy{M,T,L}(::UndefInitializer) = new()
+    CorrCholesky{M,T,L}(::UndefInitializer) where {M,T,L} = new{M,T,L}()
 end
 struct PtrCorrCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
     ptr::Ptr{T}
 end
 mutable struct CovarCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
     data::NTuple{L,T}
-    CovarCholeksy{M,T,L}(::UndefInitializer) = new()
+    CovarCholesky{M,T,L}(::UndefInitializer) where {M,T,L} = new{M,T,L}()
 end
 struct PtrCovarCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
     ptr::Ptr{T}
@@ -52,7 +52,7 @@ end
 abstract type AbstractCholeskyConstraintAdjoint{P,T,L} <: AbstractArray{T,4} end
 mutable struct CholeskyConstraintAdjoint{P,T,L} <: AbstractCholeskyConstraintAdjoint{P,T,L}
     data::NTuple{L,T}
-    CholeskyConstraintAdjoint{P,T,L}(::UndefInitializer) = new()
+    CholeskyConstraintAdjoint{P,T,L}(::UndefInitializer) where {P,T,L} = new()
 end
 struct PtrCholeskyConstraintAdjoint{P,T,L} <: AbstractCholeskyConstraintAdjoint{P,T,L}
     ptr::Ptr{T}
@@ -634,7 +634,8 @@ function load_parameter!(
             # $out = $lkjconstrained_expr
               $out, $lkjlogdetsym, $lkjlogdetgradsym, $lkjjacobiansym = DistributionParameters.∂lkj_constrain($zsym)
               $θ += $N
-              $seedlkj = PtrVector{$N,$T,$N,true}(pointer(∂θ))
+              $seedlkj = ReverseDiffExpressionsBase.alloc_adjoint(pointer(∂θ), $out)
+              # $seedlkj = PtrVector{$N,$T,$N,true}(pointer(∂θ))
               $∂θ += $N
             # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
             # target += $(T(0.5)) * ($log_jac + $lkjlogdetsym)

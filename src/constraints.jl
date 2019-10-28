@@ -94,7 +94,7 @@ function load_transformations!(
         elseif exportparam
             isym = gensym(:i)
             loop_quote = quote
-                LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
+                LoopVectorization.@vvectorize $T $m for $isym ∈ 1:$M
                     $out[$isym] = $θ[$isym]
                 end
             end
@@ -124,7 +124,7 @@ function load_transformations!(
             end
             logjac && push!(loopbody.args, :(target = $m.vadd(target, $logout)))
             loop_quote = quote
-                LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
+                LoopVectorization.@vvectorize $T $m for $isym ∈ 1:$M
                     $loopbody
                 end
             end
@@ -147,7 +147,7 @@ function load_transformations!(
             else
                 isym = gensym(:i)
                 storeloop = quote
-                    LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
+                    LoopVectorization.@vvectorize $T $m for $isym ∈ 1:$M
                         $seedout[$isym] = $m.SIMDPirates.vmuladd($seedout[$isym], $out[$isym], one($T))
                     end
                 end
@@ -171,7 +171,7 @@ function load_transformations!(
             end
             logjac && push!(loopbody.args, :(target = $m.vadd(target, $logout)))
             loop_quote = quote
-                LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
+                LoopVectorization.@vvectorize $T $m for $isym ∈ 1:$M
                     $loopbody
                 end
             end
@@ -187,7 +187,7 @@ function load_transformations!(
             else
                 isym = gensym(:i)
                 storeloop = quote
-                    LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
+                    LoopVectorization.@vvectorize $T $m for $isym ∈ 1:$M
                         $seedout[$isym] = $m.SIMDPirates.vfnmadd($seedout[$isym], $out[$isym], one($T))
                     end
                 end
@@ -206,7 +206,7 @@ function load_transformations!(
                     $unconstrained = $m.VectorizationBase.load($θ)
                     $ninvlogit = one($T) / (one($T) + exp($unconstrained))
                     $invlogit = one($T) - $ninvlogit
-                    $out = RealFloat{$(Bounds(zero($T),one($T))),$T,$T}($invlogit, $unconstrained)
+                    $out = RealFloat{$(Bounds(zero(T),one(T))),$T,$T}($invlogit, $unconstrained)
                     $∂invlogit = $invlogit * $ninvlogit
                 end
             else
@@ -302,17 +302,13 @@ function load_transformations!(
     end
     if partial
         if scalar
-            # if isunbounded(b)
-                push!(fp, :($seedout = $∂θ))
-            # else
-                # push!(fp, :($seedout = Ref{$T}()))#pointer($∂θ)))
-            # end
+            push!(fp, :($seedout = $∂θ))
         else
             push!(fp, :($seedout = $m.PtrArray{$(Tuple{shape...}),$T,$N,$(Tuple{X...}),$M,true}(pointer($∂θ))))
         end
     end
     push!(fp, :($θ += $M))
-    partial && push!(sp, :($∂θ += $M))
+    partial && push!(fp, :($∂θ += $M))
     nothing
 end
 
