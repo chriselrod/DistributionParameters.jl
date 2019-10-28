@@ -30,14 +30,13 @@ const AbstractCovarCholesky{M,T,L} = Union{CovarCholesky{M,T,L},PtrCovarCholesky
         end
     else
         quote
-            ld = FixedSizeVector{$M,$T}(undef)
-            @vvectorize for m ∈ 1:$M
-                ld[m] = log(C[m])
-            end
-            ld
+            $(Expr(:meta,:inline))
+            d = PtrVector{$M,$T,$M,true}(pointer(C))
+            PaddedMatrices.LazyMap(SLEEFPirates.log, d)
         end
     end
 end
+
 
 @generated PaddedMatrices.param_type_length(::Type{<: AbstractCorrCholesky{M}}) where {M} = StructuredMatrices.binomial2(M)
 @generated PaddedMatrices.param_type_length(::AbstractCorrCholesky{M}) where {M} = StructuredMatrices.binomial2(M)
