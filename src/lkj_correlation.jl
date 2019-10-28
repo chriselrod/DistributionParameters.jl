@@ -1,55 +1,84 @@
 using StructuredMatrices: binomial2
 
-struct LKJCorrCholesky{M,T,L} <: StructuredMatrices.AbstractLowerTriangularMatrix{M,T,L}
+
+
+### Data layout
+mutable struct CorrCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
     data::NTuple{L,T}
+    CorrCholeksy{M,T,L}(::UndefInitializer) = new()
 end
-struct PtrLKJCorrCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
+struct PtrCorrCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
+    ptr::Ptr{T}
+end
+mutable struct CovarCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
+    data::NTuple{L,T}
+    CovarCholeksy{M,T,L}(::UndefInitializer) = new()
+end
+struct PtrCovarCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
     ptr::Ptr{T}
 end
 
-const AbstractLKJCorrCholesky{M,T,L} = Union{LKJCorrCholesky{M,T,L},PtrLKJCorrCholesky{M,T,L}}
+const AbstractCorrCholesky{M,T,L} = Union{CorrCholesky{M,T,L},PtrCorrCholesky{M,T,L}}
+const AbstractCovarCholesky{M,T,L} = Union{CovarCholesky{M,T,L},PtrCovarCholesky{M,T,L}}
+
+@generated function logdiag(C::Union{<:AbstractCorrCholesky{M,T,L},<:AbstractCovarCholesky{M,T,L}}) where {M,T,L}
+    triangle_length = VectorizationBase.align(binomial2(M+1),T)
+    if L >= triangle_length + M
+        quote
+            $(Expr(:meta,:inline))
+            PtrVector{$M,$T,$(PaddedMatrices.calc_padding(M,T)),false}(pointer(C) + $(triangle_length*sizeof(T)))
+        end
+    else
+        quote
+            ld = FixedSizeVector{$M,$T}(undef)
+            @vvectorize for m ∈ 1:$M
+                ld[m] = log(C[m])
+            end
+            ld
+        end
+    end
+end
+
+@generated PaddedMatrices.param_type_length(::Type{<: AbstractCorrCholesky{M}}) where {M} = StructuredMatrices.binomial2(M)
+@generated PaddedMatrices.param_type_length(::AbstractCorrCholesky{M}) where {M} = StructuredMatrices.binomial2(M)
 
 
-
-@generated PaddedMatrices.param_type_length(::Type{<: AbstractLKJCorrCholesky{M}}) where {M} = StructuredMatrices.binomial2(M)
-@generated PaddedMatrices.param_type_length(::AbstractLKJCorrCholesky{M}) where {M} = StructuredMatrices.binomial2(M)
-
-
-# struct Inverse_LKJ_Correlation_Cholesky{M,T,L} <: AbstractMatrix{T}
+# struct Inverse__Correlation_Cholesky{M,T,L} <: AbstractMatrix{T}
 #     data::NTuple{T,L}
 #     # inverse::NTuple{T,L}
 # end
-@inline Base.pointer(L::PtrLKJCorrCholesky) = L.ptr
-@inline Base.unsafe_convert(::Type{Ptr{T}}, L::PtrLKJCorrCholesky{M,T}) where {M,T} = L.ptr
+@inline Base.pointer(L::PtrCorrCholesky) = L.ptr
+@inline Base.unsafe_convert(::Type{Ptr{T}}, L::PtrCorrCholesky{M,T}) where {M,T} = L.ptr
 
-abstract type AbstractLKJCholeskyConstraintAdjoint{P,T,L} <: AbstractArray{T,4} end
-struct LKJCholeskyConstraintAdjoint{P,T,L} <: AbstractLKJCholeskyConstraintAdjoint{P,T,L}
+abstract type AbstractCholeskyConstraintAdjoint{P,T,L} <: AbstractArray{T,4} end
+mutable struct CholeskyConstraintAdjoint{P,T,L} <: AbstractCholeskyConstraintAdjoint{P,T,L}
     data::NTuple{L,T}
+    CholeskyConstraintAdjoint{P,T,L}(::UndefInitializer) = new()
 end
-struct PtrLKJCholeskyConstraintAdjoint{P,T,L} <: AbstractLKJCholeskyConstraintAdjoint{P,T,L}
+struct PtrCholeskyConstraintAdjoint{P,T,L} <: AbstractCholeskyConstraintAdjoint{P,T,L}
     ptr::Ptr{T}
 end
-@inline VectorizationBase.vectorizable(A::PtrLKJCorrCholesky{M,T}) where {M,T} = VectorizationBase.Pointer(A.ptr)
-@inline Base.pointer(A::PtrLKJCholeskyConstraintAdjoint) = A.ptr
-@inline Base.unsafe_convert(::Type{Ptr{T}}, A::PtrLKJCholeskyConstraintAdjoint{P,T}) where {P,T} = A.ptr
-Base.size(::AbstractLKJCholeskyConstraintAdjoint{P}) where {P} = (P,P,P-1,P-1)
+@inline VectorizationBase.vectorizable(A::PtrCorrCholesky{M,T}) where {M,T} = VectorizationBase.Pointer(A.ptr)
+@inline Base.pointer(A::PtrCholeskyConstraintAdjoint) = A.ptr
+@inline Base.unsafe_convert(::Type{Ptr{T}}, A::PtrCholeskyConstraintAdjoint{P,T}) where {P,T} = A.ptr
+Base.size(::AbstractCholeskyConstraintAdjoint{P}) where {P} = (P,P,P-1,P-1)
 
-@inline function Base.getindex(adj::LKJCholeskyConstraintAdjoint{P,T,L}, i::Integer) where {P,T,L}
+@inline function Base.getindex(adj::CholeskyConstraintAdjoint{P,T,L}, i::Integer) where {P,T,L}
     @boundscheck i > L && PaddedMatrices.ThrowBoundsError("i = $i > $L.")
     @inbounds adj.data[i]
 end
-@inline function Base.getindex(A::Union{PtrLKJCorrCholesky{P,T,L},PtrLKJCholeskyConstraintAdjoint{P,T,L}}, i::Integer) where {P,T,L}
+@inline function Base.getindex(A::Union{PtrCorrCholesky{P,T,L},PtrCholeskyConstraintAdjoint{P,T,L}}, i::Integer) where {P,T,L}
     @boundscheck i > L && PaddedMatrices.ThrowBoundsError("i = $i > $L.")
     VectorizationBase.load(A.ptr + (i-1)*sizeof(T))
 end
-@inline function Base.setindex!(A::Union{PtrLKJCorrCholesky{P,T,L},PtrLKJCholeskyConstraintAdjoint{P,T,L}}, v::T, i::Integer) where {P,T,L}
+@inline function Base.setindex!(A::Union{PtrCorrCholesky{P,T,L},PtrCholeskyConstraintAdjoint{P,T,L}}, v::T, i::Integer) where {P,T,L}
     @boundscheck i > L && PaddedMatrices.ThrowBoundsError("i = $i > $L.")
     VectorizationBase.store!(A.ptr + (i-1)*sizeof(T), v)
 end
-@inline function Base.getindex(adj::AbstractLKJCholeskyConstraintAdjoint{P,T,L}, i::CartesianIndex{4}) where {P,T,L}
+@inline function Base.getindex(adj::AbstractCholeskyConstraintAdjoint{P,T,L}, i::CartesianIndex{4}) where {P,T,L}
     adj[i[1],i[2],i[3],i[4]]
 end
-function Base.getindex(adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}, i, j, k, l) where {Mp1,T,L}
+function Base.getindex(adj::AbstractCholeskyConstraintAdjoint{Mp1,T,L}, i, j, k, l) where {Mp1,T,L}
     # Welcome to Branchapalooza!!!
     kp1 = k + 1
     M = Mp1 - 1
@@ -77,7 +106,7 @@ function Base.getindex(adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}, i, j,
         end
     end
     ind = StructuredMatrices.binomial2(Mp1)
-    for mc ∈ 2:M # columns of output (LKJ)
+    for mc ∈ 2:M # columns of output ()
         mc_equal_j = mc == j
         for mp ∈ 1:mc #
             mp_equal_l = mp == l
@@ -92,7 +121,7 @@ function Base.getindex(adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}, i, j,
     zero(T)
 end
 
-function LKJ_adjoint_mul_quote(Mp1,T,sp::Bool = false)
+function corr_cholesky_adjoint_mul_quote(Mp1,T,sp::Bool = false)
     M = Mp1 - 1
     q = quote end
     StructuredMatrices.load_packed_L_quote!(q.args, Mp1, :∂target_∂L, :t)
@@ -125,8 +154,6 @@ function LKJ_adjoint_mul_quote(Mp1,T,sp::Bool = false)
             end
         end
     end
-
-
     # for p ∈ 1:M
     #     push!(outtup.args, PaddedMatrices.sym(:∂lkj_∂z, p, p) )
     # end
@@ -164,32 +191,32 @@ end
 
 @generated function Base.:*(
     t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizeVector{BP,T,BPL}},
-    adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
+    adj::AbstractCholeskyConstraintAdjoint{Mp1,T,L}
 ) where {Mp1,T,L,BP,BPL}
-    LKJ_adjoint_mul_quote(Mp1,T)
+    corr_cholesky_adjoint_mul_quote(Mp1,T)
 end
 
 @generated function Base.:*(
     t::StructuredMatrices.AbstractLowerTriangularMatrix{Mp1,T},
-    adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
+    adj::AbstractCholeskyConstraintAdjoint{Mp1,T,L}
 ) where {Mp1,T,L}
-    LKJ_adjoint_mul_quote(Mp1,T)
+    corr_cholesky_adjoint_mul_quote(Mp1,T)
 end
 
 @generated function Base.:*(
     sp::StackPointer,
     t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizeVector{BP,T,BPL}},
-    adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
+    adj::AbstractCholeskyConstraintAdjoint{Mp1,T,L}
 ) where {Mp1,T,L,BP,BPL}
-    LKJ_adjoint_mul_quote(Mp1,T,true)
+    corr_cholesky_adjoint_mul_quote(Mp1,T,true)
 end
 
 @generated function Base.:*(
     sp::StackPointer,
     t::StructuredMatrices.AbstractLowerTriangularMatrix{Mp1,T},
-    adj::AbstractLKJCholeskyConstraintAdjoint{Mp1,T,L}
+    adj::AbstractCholeskyConstraintAdjoint{Mp1,T,L}
 ) where {Mp1,T,L}
-    LKJ_adjoint_mul_quote(Mp1,T,true)
+    corr_cholesky_adjoint_mul_quote(Mp1,T,true)
 end
 
 
@@ -197,10 +224,10 @@ end
 
 
 """
-Generates the quote for the constraining transformation from z ∈ (-1,1) to LKJ_Correlation_Cholesky
+Generates the quote for the constraining transformation from z ∈ (-1,1) to _Correlation_Cholesky
 without taking the derivative of the expression.
 """
-function constrain_lkj_factor_quote(L::Int, T, zsym::Symbol, sp::Bool = false, align::Bool = true)
+function constrain_lkj_factor_quote(L::Int, T, zsym::Symbol, sp::Bool = false, align_sp::Bool = true)
     # @show L
     M = (Int(sqrt(1 + 8L))-1)>>>1
     Mp1 = M+1
@@ -237,54 +264,56 @@ function constrain_lkj_factor_quote(L::Int, T, zsym::Symbol, sp::Bool = false, a
     else
         push!(q.args, :($logdetsym = zero(T)))
     end
-    lkj_length = StructuredMatrices.binomial2(Mp1+1)
-    if align
-        lkj_length = VectorizationBase.align(lkj_length, T)
-    end
-    if sp
-        lkjsym = gensym(:LKJ)
-        push!(q.args, :($lkjsym = DistributionParameters.PtrLKJCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T))))
-        sp_increment = sizeof(T) * lkj_length
-        if align
-            sp_increment = VectorizationBase.align(sp_increment)
-        end
-        push!(q.args, :(sp += $sp_increment))
-        i = 0
-        for mc ∈ 1:M+1
-            i += 1
-            push!(q.args, :($lkjsym[$i] = $(Symbol(:x_, mc, :_, mc))))
-        end
-        for mc ∈ 1:M+1
-            for mr ∈ mc+1:M+1
-                i += 1
-                push!(q.args, :($lkjsym[$i] = $(Symbol(:x_, mr, :_, mc))))
-            end
-        end
-        return quote
-            @fastmath @inbounds begin
-                $q
-            end
-        end, lkjsym, logdetsym          
+    if align_sp
+        lkj_length_triangle = VectorizationBase.align(StructuredMatrices.binomial2(Mp1+1), T)
+        lkj_length = lkj_length_triangle + VectorizationBase.align(Mp1, T)
     else
-        output = Expr(:tuple,)
-        for mc ∈ 1:M+1
-            push!(output.args, Symbol(:x_, mc, :_, mc))
-        end
-        for mc ∈ 1:M+1
-            for mr ∈ mc+1:M+1
-                push!(output.args, Symbol(:x_, mr, :_, mc))
-            end
-        end
-        cls = length(output.args) + 1
-        for i in cls:lkj_length
-            push!(output.args, zero(T))
-        end
-        return quote
-            @fastmath @inbounds begin
-                $q
-            end
-        end, :(DistributionParameters.LKJCorrCholesky{$Mp1,$T,$lkj_length}($output)), logdetsym
+        lkj_length_triangle = StructuredMatrices.binomial2(Mp1+1)
+        lkj_length = lkj_length_triangle
     end
+    lkjsym = gensym(:CorrCholeksy)
+    if sp
+        push!(q.args, :($lkjsym = DistributionParameters.PtrCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T))))
+        sp_increment = VectorizationBase.align(sizeof(T) * lkj_length)
+        push!(q.args, :(sp += $sp_increment))
+    else
+        push!(q.args, :($lkjsym = DistributionParameters.CorrCholesky{$Mp1,$T,$lkj_length}(undef)))
+    end
+    i = 0
+    for mc ∈ 1:M+1
+        i += 1
+        push!(q.args, :($lkjsym[$i] = $(Symbol(:x_, mc, :_, mc))))
+    end
+    for mc ∈ 1:M+1
+        for mr ∈ mc+1:M+1
+            i += 1
+            push!(q.args, :($lkjsym[$i] = $(Symbol(:x_, mr, :_, mc))))
+        end
+    end
+    if align_sp # store log of diagonals
+        msym = gensym(:m)
+        W = VectorizationBase.pick_vector_width(M, T)
+        logdiag_quote = if Mp1 % W == 1
+            quote
+                $lkjsym[$(lkj_length_triangle + 1)] = zero($T)
+                @simd ivdep for $msym ∈ 1:$M
+                    $lkjsym[$msym+$(lkj_length_triangle+1)] = SLEEFPirates.log($lkjsym[$msym+1])
+                end
+            end
+        else
+            quote
+                @simd ivdep for $msym ∈ 1:$(PaddedMatrices.calc_padding(Mp1,T))
+                    $lkjsym[$msym+$lkj_length_triangle] = SLEEFPirates.log($lkjsym[$msym])
+                end
+            end
+        end
+        push!(q.args, logdiag_quote)
+    end
+    return quote
+        @fastmath @inbounds begin
+            $q
+        end
+    end, lkjsym, logdetsym          
 end
 
 function lkj_adjoint_length(M)
@@ -328,7 +357,6 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
     zind = M
     for mc ∈ 2:Mp1
         xm = Symbol(:x_, mc, :_, mc)
-
         # Note that the partials terminate at 1 less, because "z" only fills the
         # lower subdiagonal triangle. Iteration stops 2 early, as these are ones that reference
         # previous calculations. Final is the first partial for that z-term
@@ -350,7 +378,6 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
             ∂Omx²m = Symbol(:∂, Omx²m, :_, mc_nested)
             push!(q.args, :($∂xm = $(T(0.5)) * $xm * $∂Omx²m / $Omx²m ) )
         end
-
         for mr ∈ mc+1:Mp1
             xm = Symbol(:x_, mr, :_, mc)
             xm_prev = Symbol(:x_, mr, :_, mc-1)
@@ -368,7 +395,6 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
             else
                 push!(q.args, :( $(Symbol(:ljp_, mr)) *= $lj))
             end
-
             # Now we calculate partials with respect to Omx²m from this collomn
             for mc_nested ∈ 1:mc-2
                 ∂Omx²_previous = Symbol(:∂, Omx²_previous, :_, mc_nested)
@@ -389,156 +415,107 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
                 ∂xm = Symbol(:∂, xm, :_∂_, mc_nested)
                 push!(q.args, :($∂xm = $lj ) )
             end
-
-
         end
     end
-
     logdetsym = gensym(:logdet)
     if M > 1
-        push!(q.args, :($logdetsym = log( $(Expr(:call, :*, [Symbol(:ljp_,m) for m ∈ 3:Mp1]...)) ) ))
+        push!(q.args, :($logdetsym = Base.log( $(Expr(:call, :*, [Symbol(:ljp_,m) for m ∈ 3:Mp1]...)) ) ))
     else
         push!(q.args, :($logdetsym = zero(T)))
     end
-
+    lkj_length_triangle = VectorizationBase.align(binomial2(Mp1+1),T)
+    lkj_length = lkj_length_triangle + VectorizationBase.align(Mp1, T)
+    lkjsym = gensym(:CorrCholesky)
     if sp
-        lkj_length = VectorizationBase.align(binomial2(Mp1+1),T)
-        lkjsym = gensym(:LKJ)
-        push!(q.args, :($lkjsym = PtrLKJCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T))))
+        push!(q.args, :($lkjsym = PtrCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T))))
         push!(q.args, :(sp += $(VectorizationBase.align(sizeof(T)*lkj_length))))
-        i = 0
-        for mc ∈ 1:Mp1
+    else
+        push!(q.args, :($lkjsym = CorrCholesky{$Mp1,$T,$lkj_length}(undef)))
+    end
+    i = 0
+    for mc ∈ 1:Mp1
+        i += 1
+        push!(q.args, :($lkjsym[$i] = $(Symbol(:x_, mc, :_, mc))))
+    end
+    for mc ∈ 1:Mp1
+        for mr ∈ mc+1:Mp1
             i += 1
-            push!(q.args, :($lkjsym[$i] = $(Symbol(:x_, mc, :_, mc))))
+            push!(q.args, :($lkjsym[$i] = $(Symbol(:x_, mr, :_, mc))))
         end
-        for mc ∈ 1:Mp1
-            for mr ∈ mc+1:Mp1
-                i += 1
-                push!(q.args, :($lkjsym[$i] = $(Symbol(:x_, mr, :_, mc))))
+    end
+    W = VectorizationBase.pick_vector_width(M, T)
+    msym = gensym(:m)
+    logdiag_quote = if Mp1 % W == 1
+    # If the remainder is 1, we can save a loop iteration by simply assigning zero to the first element
+    # (lkjsym[1] == 1, so its log is 0)
+        quote
+            $lkjsym[$(1 + lkj_length_triangle)] = zero($T)
+            @simd ivdep for $msym ∈ 1:$M
+                $lkjsym[$msym + $(1+lkj_length_triangle)] = SLEEFPirates.log($lkjsym[$msym+1])
             end
         end
-        Wm1 = VectorizationBase.pick_vector_width(Mp1, T) - 1
-        LKJ_L1 = StructuredMatrices.binomial2(Mp1+1)
-#        LKJ_L = (LKJ_L1 + Wm1) & ~Wm1
-#        for i ∈ LKJ_L1+1:LKJ_L
-#            push!(output.args, zero(T))
-#        end
-        ∂logdetsym = gensym(:∂logdet)
-        bin2M = binomial2(M+1)
+    else
+        quote
+            @simd ivdep for $msym ∈ 1:$(PaddedMatrices.calc_padding(Mp1, T))
+                $lkjsym[$msym + $lkj_length_triangle] = SLEEFPirates.log($lkjsym[$msym])
+            end
+        end
+    end
+    push!(q.args, logdiag_quote)
+    ∂logdetsym = gensym(:∂logdet)
+    bin2M = binomial2(M+1)
+    if sp
         push!(q.args, :($∂logdetsym = PtrVector{$bin2M,$T,$bin2M}(pointer(sp, $T))))
         push!(q.args, :(sp += $(VectorizationBase.align(sizeof(T)*bin2M))))
-        i = 0
-        for mc ∈ 1:M
-            i += 1
-            push!(q.args, :($∂logdetsym[$i] = zero($T)))
-            for mr ∈ mc+2:M+1
-                i += 1
-                push!(q.args, :($∂logdetsym[$i] = $(Symbol(:∂ljp_, mr, :_, mc))))
-            end
-        end
-#        ∂logdet_len = length(∂logdet.args)
- #       ∂logdet_len_full = (∂logdet_len + Wm1) & ~Wm1
- #       for i ∈ ∂logdet_len+1:∂logdet_len_full
- #           push!(∂logdet.args, zero(T))
- #       end
-
-        jacobiansym = gensym(:jacobian)
-        Ladj = DistributionParameters.lkj_adjoint_length(M)
-        push!(q.args, :($jacobiansym = PtrLKJCholeskyConstraintAdjoint{$Mp1,$T,$Ladj}(pointer(sp,$T))))
-        push!(q.args, :(sp += $(VectorizationBase.align(Ladj*sizeof(T)))))
-        # diagonal block of lkj
-        i = 0
-        for mp ∈ 1:M
-            for mc ∈ mp+1:Mp1
-                i +=1
-#                push!(q.args, :($jacobiansym[$i] = $(T(0.5)) * $(Symbol(:∂x_, mc, :_, mc, :_∂_, mp))))
-                push!(q.args, :($jacobiansym[$i] = $(Symbol(:∂x_, mc, :_, mc, :_∂_, mp))))
-            end
-        end
-        for mc ∈ 2:M
-            for mp ∈ 1:mc
-                for mr ∈ mc+1:Mp1 # iter through columns of z
-                    i += 1
-#                    push!(q.args, :($jacobiansym[$i] = $(T(0.5)) * $(Symbol(:∂x_, mr, :_, mc, :_∂_, mp))))
-                    push!(q.args, :($jacobiansym[$i] = $(Symbol(:∂x_, mr, :_, mc, :_∂_, mp))))
-                end
-            end
-        end
-#        push!(q.args, :(sp += 800))
-    # Return quote, followed by 4 outputs of the function
-    # four outputs are:
-    # 1. constrained
-    # 2. logdeterminant of constraining transformation
-    # 3. gradient with respect to log determinant
-    # 4. Jacobian of the constraining transformation
-    # constrain_q, constrained_expr, logdetsym, logdetgrad, jacobian
-        return quote
-            @fastmath @inbounds begin
-                $q
-            end
-        end, lkjsym, logdetsym, ∂logdetsym, jacobiansym
-    else    
-        output = Expr(:tuple,)
-        for mc ∈ 1:Mp1
-            push!(output.args, Symbol(:x_, mc, :_, mc))
-        end
-        for mc ∈ 1:Mp1
-            for mr ∈ mc+1:Mp1
-                push!(output.args, Symbol(:x_, mr, :_, mc))
-            end
-        end
-        Wm1 = VectorizationBase.pick_vector_width(Mp1, T) - 1
-        LKJ_L1 = StructuredMatrices.binomial2(Mp1+1)
-        LKJ_L = (LKJ_L1 + Wm1) & ~Wm1
-        for i ∈ LKJ_L1+1:LKJ_L
-            push!(output.args, zero(T))
-        end
-
-        ∂logdet = Expr(:tuple,)
-        for mc ∈ 1:M
-            push!(∂logdet.args, zero(T))
-            for mr ∈ mc+2:M+1
-                push!(∂logdet.args, Symbol(:∂ljp_, mr, :_, mc))
-            end
-        end
-        ∂logdet_len = length(∂logdet.args)
-        ∂logdet_len_full = (∂logdet_len + Wm1) & ~Wm1
-        for i ∈ ∂logdet_len+1:∂logdet_len_full
-            push!(∂logdet.args, zero(T))
-        end
-
-        jacobian_tuple = Expr(:tuple,)
-    # diagonal block of lkj
-        for mp ∈ 1:M
-            for mc ∈ mp+1:Mp1
-                push!(jacobian_tuple.args, Symbol(:∂x_, mc, :_, mc, :_∂_, mp))
-            end
-        end
-        for mc ∈ 2:M
-            for mp ∈ 1:mc
-                for mr ∈ mc+1:Mp1 # iter through columns of z
-                    push!(jacobian_tuple.args, Symbol(:∂x_, mr, :_, mc, :_∂_, mp))
-                end
-            end
-        end
-        Lbase = length(jacobian_tuple.args)
-        Ladj = PaddedMatrices.calc_padding(Lbase, T)
-        for i ∈ Lbase+1:Ladj
-            push!(jacobian_tuple.args, zero(T))
-        end
-    # Return quote, followed by 4 outputs of the function
-    # four outputs are:
-    # 1. constrained
-    # 2. logdeterminant of constraining transformation
-    # 3. gradient with respect to log determinant
-    # 4. Jacobian of the constraining transformation
-    # constrain_q, constrained_expr, logdetsym, logdetgrad, jacobian
-        return quote
-            @fastmath @inbounds begin
-                $q
-            end
-        end, :(DistributionParameters.LKJCorrCholesky{$Mp1,$T,$(LKJ_L)}($output)), logdetsym, :(DistributionParameters.ConstantFixedSizeVector{$L}($∂logdet)), :(DistributionParameters.LKJCholeskyConstraintAdjoint{$Mp1,$T,$Ladj}($jacobian_tuple))
+    else
+        push!(q.args, :($∂logdetsym = FixedSizeVector{$bin2M,$T,$bin2M}(undef)))
     end
+    i = 0
+    for mc ∈ 1:M
+        i += 1
+        push!(q.args, :($∂logdetsym[$i] = zero($T)))
+        for mr ∈ mc+2:M+1
+            i += 1
+            push!(q.args, :($∂logdetsym[$i] = $(Symbol(:∂ljp_, mr, :_, mc))))
+        end
+    end
+    jacobiansym = gensym(:jacobian)
+    Ladj = DistributionParameters.lkj_adjoint_length(M)
+    if sp
+        push!(q.args, :($jacobiansym = PtrCholeskyConstraintAdjoint{$Mp1,$T,$Ladj}(pointer(sp,$T))))
+        push!(q.args, :(sp += $(VectorizationBase.align(Ladj*sizeof(T)))))
+    else
+        push!(q.args, :($jacobiansym = CholeskyConstraintAdjoint{$Mp1,$T,$Ladj}(undef)))
+    end
+    # diagonal block of lkj
+    i = 0
+    for mp ∈ 1:M
+        for mc ∈ mp+1:Mp1
+        i +=1
+            push!(q.args, :($jacobiansym[$i] = $(Symbol(:∂x_, mc, :_, mc, :_∂_, mp))))
+        end
+    end
+    for mc ∈ 2:M
+        for mp ∈ 1:mc
+            for mr ∈ mc+1:Mp1 # iter through columns of z
+                i += 1
+                #                    push!(q.args, :($jacobiansym[$i] = $(T(0.5)) * $(Symbol(:∂x_, mr, :_, mc, :_∂_, mp))))
+                push!(q.args, :($jacobiansym[$i] = $(Symbol(:∂x_, mr, :_, mc, :_∂_, mp))))
+            end
+        end
+    end
+# Return quote, followed by 4 outputs of the function
+# four outputs are:
+# 1. constrained
+# 2. logdeterminant of constraining transformation
+# 3. gradient with respect to log determinant
+# 4. Jacobian of the constraining transformation
+# constrain_q, constrained_expr, logdetsym, logdetgrad, jacobian
+    return quote
+        @fastmath @inbounds begin
+            $q
+        end
+    end, lkjsym, logdetsym, ∂logdetsym, jacobiansym
 end
 
 @generated function lkj_constrain(zlkj::PaddedMatrices.AbstractFixedSizeVector{L,T}) where {T,L}
@@ -587,7 +564,7 @@ end
 
 
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{<: AbstractLKJCorrCholesky{M,T}},
+    first_pass, second_pass, out, ::Type{<: AbstractCorrCholesky{M,T}},
     partial::Bool = false, m::Module = DistributionParameters, sp::Nothing = nothing,
     logjac::Bool = true, exportparam::Bool = false
 ) where {M,T}
@@ -645,19 +622,21 @@ function load_parameter!(
         seedlkj = gensym(:seedlkj)
         lkjlogdetgradsym = gensym(:lkjlogdetgrad)
         lkjjacobiansym = gensym(:lkjjacobian)
-        push!(second_pass, macroexpand(m, quote
-              $seedlkj = ($(Symbol("###seed###", out)) * $lkjjacobiansym).parent
+        spq = quote
+            $seedlkj = ($(adj(out)) * $lkjjacobiansym).parent
             LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$L
-                $∂θ[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
+                $seedlkj[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
             end
-            $∂θ += $N
-        end))
+        end
+        push!(second_pass, macroexpand(m, spq))
         push!(q.args, quote
             # $zsym = ConstantFixedSizeVector{$M}($mv)
             # $lkjconstrain_q
             # $out = $lkjconstrained_expr
-            $out, $lkjlogdetsym, $lkjlogdetgradsym, $lkjjacobiansym = DistributionParameters.∂lkj_constrain($zsym)
-            $θ += $N
+              $out, $lkjlogdetsym, $lkjlogdetgradsym, $lkjjacobiansym = DistributionParameters.∂lkj_constrain($zsym)
+              $θ += $N
+              $seedlkj = PtrVector{$N,$T,$N,true}(pointer(∂θ))
+              $∂θ += $N
             # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
             # target += $(T(0.5)) * ($log_jac + $lkjlogdetsym)
             # println("log_jac invlogit")
@@ -688,7 +667,7 @@ function load_parameter!(
     nothing
 end
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{<: AbstractLKJCorrCholesky{M,T}},
+    first_pass, second_pass, out, ::Type{<: AbstractCorrCholesky{M,T}},
     partial::Bool, m::Module, sp::Symbol, logjac::Bool = true, exportparam::Bool = false
 ) where {M,T}
     θ = Symbol("##θparameter##")
@@ -759,7 +738,7 @@ function load_parameter!(
         lkjjacobiansym = gensym(:lkjjacobian)
         seedlkjgensym = gensym(seedlkj)
         push!(second_pass, quote
-              ($sp, $seedlkjgensym) = $sp * $(Symbol("###seed###", out)) * $lkjjacobiansym
+              ($sp, $seedlkjgensym) = $sp * $(adj(out)) * $lkjjacobiansym
               $seedlkj = $seedlkjgensym.parent
               $(macroexpand(m, quote
                             LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$N
@@ -802,15 +781,15 @@ function load_parameter!(
 end
 
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{<: AbstractLKJCorrCholesky{M}},
+    first_pass, second_pass, out, ::Type{<: AbstractCorrCholesky{M}},
     partial::Bool = false, m::Module = DistributionParameters,
     sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {M}
-    load_parameter!(first_pass, second_pass, out, LKJCorrCholesky{M,Float64}, partial, m, sp, logjac, exportparam)
+    load_parameter!(first_pass, second_pass, out, CorrCholesky{M,Float64}, partial, m, sp, logjac, exportparam)
 end
 
 
-function parameter_names(::Type{<: AbstractLKJCorrCholesky{M}}, s::Symbol) where {M}
+function parameter_names(::Type{<: AbstractCorrCholesky{M}}, s::Symbol) where {M}
     ss = strip_hashtags(s)
     names = Vector{String}(undef, binomial2(M+1))
     for m ∈ 1:M

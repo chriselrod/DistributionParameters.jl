@@ -30,9 +30,8 @@ function Bounds(lb::T1, ub::T2) where {T1,T2}
     Bounds{T}(T(lb), T(ub))
 end
 
-
-ismin(x::T) where {T} = ((x == typemin(T)) | (x == -floatmin(T)))
-ismax(x::T) where {T} = ((x == typemax(T)) | (x ==  floatmin(T)))
+ismin(x::T) where {T} = ((x == typemin(T)) | (x == -floatmax(T))) # floatmin
+ismax(x::T) where {T} = ((x == typemax(T)) | (x ==  floatmax(T)))
 function isunbounded(b::Bounds{T}) where {T}
     ismin(b.lb) & ismax(b.ub)
 end
@@ -88,7 +87,7 @@ function load_transformations!(
             $out = $m.FixedSizeArray{$(Tuple{shape...}),$T,$N,$(Tuple{X...}),$M}(undef)
         end
     end
-    seedout = Symbol("###seed###", out)
+    seedout = ReverseDiffExpressionsBase.adj(out)
     if isunbounded(b)
         if scalar
             push!(fp, :($out = $m.VectorizationBase.load($θ)))
@@ -107,29 +106,17 @@ function load_transformations!(
         else
             push!(fp, :($out = $m.PtrArray{$(Tuple{shape...}),$T,$N,$(Tuple{X...}),$M,true}(pointer($θ))))
         end
-        if partial
-            if scalar
-                push!(sp, :($m.VectorizationBase.store!($∂θ, $seedout)))
-            else
-                isym = gensym(:i)
-                storeloop = quote
-                    LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
-                        $∂θ[$isym] = $seedout[$isym]
-                    end
-                end
-                push!(sp, macroexpand(m, storeloop))
-            end
-        end
     elseif islowerbounded(b)
         logout = gensym(Symbol(:log_, out))
-        outdef = (b.lb == zero(T)) ? :(exp($logout)) : :(exp($logout) + $(T(b.lb)))
         if scalar
+            outdef = (b.lb == zero(T)) ? :(RealFloat{$(Bounds(zero(T),typemax(T))),$T,$T}(Base.exp($logout),$logout)) : :(exp($logout) + $(T(b.lb)))
             load_expr = quote
                 $logout = $m.VectorizationBase.load($θ)
                 $out = $outdef
             end
             logjac && push!(load_expr.args, :(target = $m.vadd(target, $logout)))
         else
+            outdef = (b.lb == zero(T)) ? :(exp($logout)) : :(exp($logout) + $(T(b.lb)))
             isym = gensym(:i)
             loopbody = quote
                 $logout = $θ[$isym]
@@ -141,6 +128,12 @@ function load_transformations!(
                     $loopbody
                 end
             end
+            if b.lb == zero(T)
+                outinit = quote
+                    $out = $m.RealArray{$(Tuple{shape...}),$(Bounds(zero(T),typemax(T))),$T,$N,$(Tuple{X...}),$M,Ptr{$T}}(pointer($sptr, $T),pointer($θ))
+                    $sptr += $(maybe_align(sizeof(T)*M))
+                end
+            end
             load_expr = quote
                 $outinit
                 $(macroexpand(m, loop_quote))
@@ -149,12 +142,13 @@ function load_transformations!(
         push!(fp, load_expr)
         if partial
             if scalar
-                push!(sp, :($m.VectorizationBase.store!($∂θ, muladd($seedout, $out, one($T)))))
+                # push!(sp, :($m.VectorizationBase.store!($∂θ, muladd($seedout, $out, one($T)))))
+                push!(sp, :($m.VectorizationBase.store!($seedout, muladd($m.VectorizationBase.load($seedout), $out, one($T)))))
             else
                 isym = gensym(:i)
                 storeloop = quote
                     LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
-                        $∂θ[$isym] = $m.SIMDPirates.vmuladd($seedout[$isym], $out[$isym], one($T))
+                        $seedout[$isym] = $m.SIMDPirates.vmuladd($seedout[$isym], $out[$isym], one($T))
                     end
                 end
                 push!(sp, macroexpand(m, storeloop))
@@ -189,12 +183,12 @@ function load_transformations!(
         push!(fp, loop_expr)
         if partial
             if scalar
-                push!(sp, :($m.VectorizationBase.store!($∂θ, $m.SIMDPirates.vfnmadd($seedout, $out, one($T)))))
+                push!(sp, :($m.VectorizationBase.store!($seedout, $m.SIMDPirates.vfnmadd($m.VectorizationBase.load($seedout), $out, one($T)))))
             else
                 isym = gensym(:i)
                 storeloop = quote
                     LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
-                        $∂θ[$isym] = $m.SIMDPirates.vfnmadd($seedout[$isym], $out[$isym], one($T))
+                        $seedout[$isym] = $m.SIMDPirates.vfnmadd($seedout[$isym], $out[$isym], one($T))
                     end
                 end
                 push!(sp, macroexpand(m, storeloop))
@@ -206,25 +200,44 @@ function load_transformations!(
         ninvlogit = gensym(:ninvlogit)
         ∂invlogit = gensym(:∂invlogit)
         if scalar
-            q = quote
-                $ninvlogit = one($T) / (one($T) + exp($m.VectorizationBase.load($θ)))
-                $invlogit = one($T) - $ninvlogit
-                $out = $(b.lb == zero(T) ?
-                         (scale == one(T) ? invlogit : :($scale * $invlogit)) :
-                         (scale == one(T) ? :($(b.lb) + $invlogit) : :(muladd($scale, $invlogit, $(b.lb)))))
-                $∂invlogit = $invlogit * $ninvlogit
+            if b.lb == 0 && b.ub == 1
+                unconstrained = gensym(:unconstrained)
+                q = quote
+                    $unconstrained = $m.VectorizationBase.load($θ)
+                    $ninvlogit = one($T) / (one($T) + exp($unconstrained))
+                    $invlogit = one($T) - $ninvlogit
+                    $out = RealFloat{$(Bounds(zero($T),one($T))),$T,$T}($invlogit, $unconstrained)
+                    $∂invlogit = $invlogit * $ninvlogit
+                end
+            else
+                q = quote
+                    $ninvlogit = one($T) / (one($T) + exp($m.VectorizationBase.load($θ)))
+                    $invlogit = one($T) - $ninvlogit
+                    $out = $(b.lb == zero(T) ?
+                             (scale == one(T) ? invlogit : :($scale * $invlogit)) :
+                             (scale == one(T) ? :($(b.lb) + $invlogit) : :(muladd($scale, $invlogit, $(b.lb)))))
+                    $∂invlogit = $invlogit * $ninvlogit
+                end
             end
             logjac && push!(q.args, :( target = $m.vadd(target, $∂invlogit)))
             push!(fp, q)
             if partial
                 ∂q = quote
-                    VectorizationBase.store!($∂θ, @fastmath one($T) - $(T(2)) * $invlogit +
-                                             $seedout * $(scale == one(T) ? ∂invlogit : :($scale * $∂invlogit)))
+                    VectorizationBase.store!(
+                        $seedout, @fastmath one($T) - $(T(2)) * $invlogit +
+                        $m.VectorizationBase.load($seedout) * $(scale == one(T) ? ∂invlogit : :($scale * $∂invlogit))
+                    )
                 end
                 push!(sp, macroexpand(m, ∂q)) #Expand the fastmath? Why not Base.FastMath.add_fast / mul_fast directly?
             end
         else
             isym = gensym(:i)
+            if b.lb == 0 && b.ub == 1
+                outinit = quote
+                    $out = $m.RealArray{$(Tuple{shape...}),$(Bounds(zero(T),one(T))),$T,$N,$(Tuple{X...}),$M,Ptr{$T}}(pointer($sptr, $T), pointer($θ))
+                    $sptr += $(maybe_align(sizeof(T)*M))
+                end
+            end
             if partial
                 invlogitinits = if sptr isa Symbol
                     quote
@@ -263,9 +276,8 @@ function load_transformations!(
                 push!(fp, macroexpand(m, loop_quote))
                 storeloop = quote
                     LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
-                        $∂θ[$isym] = one($T) - $(T(2)) * $invlogit[$isym] +
-                            ($seedout)[$isym] *
-                            $(scale == one(T) ? :($∂invlogit[$isym]) : :($∂invlogit[$isym] * $scale))
+                        $seedout[$isym] = one($T) - $(T(2)) * $invlogit[$isym] +
+                            ($seedout)[$isym] * $(scale == one(T) ? :($∂invlogit[$isym]) : :($∂invlogit[$isym] * $scale))
                     end
                 end
                 push!(sp, macroexpand(m, storeloop))
@@ -286,6 +298,17 @@ function load_transformations!(
                 end
                 push!(fp, macroexpand(m, loop_quote))
             end
+        end
+    end
+    if partial
+        if scalar
+            # if isunbounded(b)
+                push!(fp, :($seedout = $∂θ))
+            # else
+                # push!(fp, :($seedout = Ref{$T}()))#pointer($∂θ)))
+            # end
+        else
+            push!(fp, :($seedout = $m.PtrArray{$(Tuple{shape...}),$T,$N,$(Tuple{X...}),$M,true}(pointer($∂θ))))
         end
     end
     push!(fp, :($θ += $M))

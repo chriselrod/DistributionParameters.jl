@@ -1,7 +1,8 @@
 module DistributionParameters
 
 using PaddedMatrices, StructuredMatrices, LinearAlgebra,
-        SIMDPirates, SLEEFPirates, LoopVectorization, VectorizationBase, StackPointers
+    SIMDPirates, SLEEFPirates, LoopVectorization, VectorizationBase,
+    StackPointers, ReverseDiffExpressionsBase
 
 using PaddedMatrices: StackPointer, DynamicPtrMatrix,
     AbstractMutableFixedSizeVector, AbstractFixedSizeVector

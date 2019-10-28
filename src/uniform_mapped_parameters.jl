@@ -1,10 +1,85 @@
 
-struct RealFloat{B,T} <: Real end
-struct RealArray{S,B,T,N,X,L} <: PaddedMatrices.AbstractMutableFixedSizeArray{S,T,N,X,L} end
-const RealVector{M,B,T,L} = RealArray{Tuple{M},B,T,1,Tuple{1},L}
-const RealMatrix{M,N,B,T,L} = RealArray{Tuple{M,N},B,T,2,Tuple{1,M},L}
+struct RealFloat{B,T<:Real,U<:Union{T,Nothing}} <: Real
+    r::T
+    u::U
+end
+struct RealArray{S,B,T,N,X,L,U<:Union{Nothing,Ptr{T}}} <: PaddedMatrices.AbstractMutableFixedSizeArray{S,T,N,X,L}
+    ptr::Ptr{T}
+    utpr::U
+end
+const RealVector{M,B,T,L,U} = RealArray{Tuple{M},B,T,1,Tuple{1},L,U}
+const RealMatrix{M,N,B,T,L,U} = RealArray{Tuple{M,N},B,T,2,Tuple{1,M},L,U}
+@inline Base.pointer(A::RealArray) = A.ptr
 
 PaddedMatrices.type_length(::Type{<:RealFloat}) = 1
+
+@inline function PaddedMatrices.LazyMap(f::typeof(Base.log), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
+    if B === Bounds(zero(T),typemax(T))
+        PtrArray{S,T,N,X,L,true}(A.uptr)
+    else
+        LazyMap{S,T,N,X,L}(SLEEFPirates.log, A.ptr)
+    end
+end
+@inline function PaddedMatrices.LazyMap(f::typeof(SLEEFPirates.log), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
+    if B === Bounds(zero(T),typemax(T))
+        PtrArray{S,T,N,X,L,true}(A.uptr)
+    else
+        LazyMap{S,T,N,X,L}(SLEEFPirates.log, A.ptr)
+    end
+end
+@inline function PaddedMatrices.LazyMap(f::typeof(SLEEFPirates.logit), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
+    if B === Bounds(zero(T),one(T))
+        PtrArray{S,T,N,X,L,true}(A.uptr)
+    else
+        LazyMap{S,T,N,X,L}(SLEEFPirates.logit, A.ptr)
+    end
+end
+
+@inline Base.log(x::RealFloat{B,T,Nothing}) where {B,T} = Base.log(x.r)
+@inline function Base.log(x::RealFloat{B,T,T}) where {B,T}
+    if B === Bounds(zero(T),typemax(T))
+        x.u
+    else
+        Base.log(x.r)
+    end
+end
+@inline SLEEFPirates.log(x::RealFloat{B,T,Nothing}) where {B,T} = SLEEFPirates.log(x.r)
+@inline function SLEEFPirates.log(x::RealFloat{B,T,T}) where {B,T}
+    if B === Bounds(zero(T),typemax(T))
+        x.u
+    else
+        SLEEFPirates.log(x.r)
+    end
+end
+@inline function SLEEFPirates.logit(x::RealFloat{B,T,T}) where {B,T}
+    if B === Bounds(zero(T),one(T))
+        x.u
+    else
+        SLEEFPirates.logit(x.r)
+    end
+end
+
+
+@inline Base.exp(x::RealFloat) = Base.exp(x.r)
+@inline SLEEFPirates.exp(x::RealFloat) = SLEEFPirates.exp(x.r)
+@inline SpecialFunctions.logabsgamma(x::RealFloat) = SpecialFunctions.logabsgamma(x.r)
+@inline SpecialFunctions.logabsbeta(x::RealFloat) = SpecialFunctions.logabsbeta(x.r)
+@inline Base.sqrt(x::RealFloat) = Base.FastMath.sqrt_fast(x.r)
+
+@inline Base.:+(x::RealFloat, y) = Base.FastMath.add_fast(x.r, y)
+@inline Base.:+(x, y::RealFloat) = Base.FastMath.add_fast(x, y.r)
+@inline Base.:+(x::RealFloat, y::RealFloat) = Base.FastMath.add_fast(x.r, y.r)
+@inline Base.:-(x::RealFloat, y) = Base.FastMath.sub_fast(x.r, y)
+@inline Base.:-(x, y::RealFloat) = Base.FastMath.sub_fast(x, y.r)
+@inline Base.:-(x::RealFloat, y::RealFloat) = Base.FastMath.sub_fast(x.r, y.r)
+@inline Base.:*(x::RealFloat, y) = Base.FastMath.mul_fast(x.r, y)
+@inline Base.:*(x, y::RealFloat) = Base.FastMath.mul_fast(x, y.r)
+@inline Base.:*(x::RealFloat, y::RealFloat) = Base.FastMath.mul_fast(x.r, y.r)
+@inline Base.:/(x::RealFloat, y) = Base.FastMath.div_fast(x.r, y)
+@inline Base.:/(x, y::RealFloat) = Base.FastMath.div_fast(x, y.r)
+@inline Base.:/(x::RealFloat, y::RealFloat) = Base.FastMath.div_fast(x.r, y.r)
+
+
 
 
 strip_hashtags(s::String) = s[1+last(findlast("#",s)):end]
