@@ -803,3 +803,34 @@ function parameter_names(::Type{<: AbstractCorrCholesky{M}}, s::Symbol) where {M
     names::Vector{String}
 end
 
+@generated function LinearAlgebra.mul!(
+    σL::AbstractCovarCholesky{M,T,MT},
+    σ::Diagonal{T,<:AbstractFixedSizeVector{M,T,MV}},
+    L::AbstractCorrCholesky{M,T,MT}
+) where {M,MT,MV,T}
+    q = quote
+        σLpt = StructuredMatrices.PtrLowerTriangularMatrix{$M,Float64,$MT}(pointer(σL))
+        Lpt = StructuredMatrices.PtrLowerTriangularMatrix{$M,Float64,$MT}(pointer(L))
+        mul!(σLpt, σ, L)
+    end
+    tri_length = binomial2(M+1)
+    # If it is too small to cache logdiag, don't.
+    if MT < triangle_length + M
+        push!(q.args, :σL)
+        return q
+    end
+    calc_logdiag_q = quote
+        logdiag_σL = logdiag(σL)
+        logdiag_L = logdiag(L)
+        logσ = LazyMap(SLEEFPirates.log, σ)
+        @vvectorize for m ∈ 1:$MV
+            logdiag_σL[m] = logσ[m] + logdiag_L[m]
+        end
+        σL
+    end
+    push!(q.args, calc_logdiag_q)
+    q
+end
+
+
+

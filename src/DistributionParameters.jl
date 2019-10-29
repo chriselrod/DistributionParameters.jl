@@ -10,7 +10,7 @@ using PaddedMatrices: StackPointer, DynamicPtrMatrix,
 # using ReverseSourceToSourceDiffBase: Target
 
 export RealFloat, RealArray, RealVector, RealMatrix, Bounds, MissingDataArray, maybe_missing,
-    constrain, LKJCorrCholesky, DynamicCovarianceMatrix, Target
+    constrain, CorrCholesky, CovarCholesky, DynamicCovarianceMatrix
 
 #using LoopVectorization: @vvectorize
 
