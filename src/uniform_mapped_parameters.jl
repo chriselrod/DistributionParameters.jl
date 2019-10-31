@@ -13,6 +13,9 @@ const RealMatrix{M,N,B,T,L,U} = RealArray{Tuple{M,N},B,T,2,Tuple{1,M},L,U}
 
 PaddedMatrices.type_length(::Type{<:RealFloat}) = 1
 
+@inline function PtrArray(A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
+    PtrArray{S,T,N,X,L,true}(pointer(A))
+end
 @inline function PaddedMatrices.LazyMap(f::typeof(Base.log), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
     if B === Bounds(zero(T),typemax(T))
         PtrArray{S,T,N,X,L,true}(A.uptr)
@@ -66,6 +69,7 @@ end
 @inline SpecialFunctions.logabsbeta(x::RealFloat) = SpecialFunctions.logabsbeta(x.r)
 @inline Base.sqrt(x::RealFloat) = Base.FastMath.sqrt_fast(x.r)
 
+@inline Base.convert(::Type{T}, x::RealFloat{B,T}) where {B,T} = x.r
 @inline Base.:+(x::RealFloat, y) = Base.FastMath.add_fast(x.r, y)
 @inline Base.:+(x, y::RealFloat) = Base.FastMath.add_fast(x, y.r)
 @inline Base.:+(x::RealFloat, y::RealFloat) = Base.FastMath.add_fast(x.r, y.r)
@@ -75,11 +79,41 @@ end
 @inline Base.:*(x::RealFloat, y) = Base.FastMath.mul_fast(x.r, y)
 @inline Base.:*(x, y::RealFloat) = Base.FastMath.mul_fast(x, y.r)
 @inline Base.:*(x::RealFloat, y::RealFloat) = Base.FastMath.mul_fast(x.r, y.r)
+@inline function Base.:*(x::RealFloat{B,T,T}, y::RealFloat{B,T,T}) where {B,T}
+    if B === Bounds(zero(T),typemax(T))
+        RealFloat{B,T,T}(
+            Base.FastMath.mul_fast(x.r, y.r),
+            Base.FastMath.add_fast(x.u, y.u)
+        )
+    else
+        Base.FastMath.mul_fast(x.r, y.r)
+    end
+end
 @inline Base.:/(x::RealFloat, y) = Base.FastMath.div_fast(x.r, y)
 @inline Base.:/(x, y::RealFloat) = Base.FastMath.div_fast(x, y.r)
 @inline Base.:/(x::RealFloat, y::RealFloat) = Base.FastMath.div_fast(x.r, y.r)
-
-
+@inline function Base.:/(x::RealFloat{Bounds(0.0,Inf),Float64,Float64}, y::RealFloat{Bounds,0.0,Inf},Float64,Float64)
+    if B === Bounds(zero(T),typemax(T))
+        RealFloat{B,T,T}(
+            Base.FastMath.div_fast(x.r, y.r),
+            Base.FastMath.sub_fast(x.u, y.u)
+        )
+    else
+        Base.FastMath.div_fast(x.r, y.r)
+    end
+end
+@inline Base.inv(x::RealFloat) = Base.FastMath.inv_fast(x.r)
+@inline function Base.inv(x::RealFloat{Bounds(0.0,Inf),Float64,Float64})
+    if B === Bounds(zero(T),typemax(T))
+        RealFloat{B,T,T}(
+            Base.FastMath.inv_fast(x.r),
+            -x.u
+        )
+    else
+        Base.FastMath.inv_fast(x.r)
+    end
+    
+end
 
 
 strip_hashtags(s::String) = s[1+last(findlast("#",s)):end]
