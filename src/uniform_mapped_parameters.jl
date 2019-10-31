@@ -62,7 +62,7 @@ end
     end
 end
 
-
+@inline VectorizationBase.extract_data(x::RealFloat) = x.r
 @inline Base.exp(x::RealFloat) = Base.exp(x.r)
 @inline SLEEFPirates.exp(x::RealFloat) = SLEEFPirates.exp(x.r)
 @inline SpecialFunctions.logabsgamma(x::RealFloat) = SpecialFunctions.logabsgamma(x.r)
