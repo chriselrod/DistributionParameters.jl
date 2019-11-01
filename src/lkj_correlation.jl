@@ -3,6 +3,13 @@ using StructuredMatrices: binomial2
 
 
 ### Data layout
+"""
+Intention is for default data layout of CorrCholesky to be
+Diagonals [aligned]
+Lower sub-diagonal triangle (packed column major)
+log(Diagonals) [aligned]
+inv(Diagonals) [aligned] -- OPTIONAL, default absent
+"""
 mutable struct CorrCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
     data::NTuple{L,T}
     CorrCholesky{M,T,L}(::UndefInitializer) where {M,T,L} = new{M,T,L}()
@@ -10,6 +17,13 @@ end
 struct PtrCorrCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
     ptr::Ptr{T}
 end
+"""
+Intention is for default data layout of CorrCholesky to be
+Diagonals [aligned]
+Lower sub-diagonal triangle (packed column major)
+log(Diagonals) [aligned]
+inv(Diagonals) [aligned]
+"""
 mutable struct CovarCholesky{M,T,L} <: StructuredMatrices.AbstractMutableLowerTriangularMatrix{M,T,L}
     data::NTuple{L,T}
     CovarCholesky{M,T,L}(::UndefInitializer) where {M,T,L} = new{M,T,L}()
@@ -20,6 +34,14 @@ end
 
 const AbstractCorrCholesky{M,T,L} = Union{CorrCholesky{M,T,L},PtrCorrCholesky{M,T,L}}
 const AbstractCovarCholesky{M,T,L} = Union{CovarCholesky{M,T,L},PtrCovarCholesky{M,T,L}}
+
+@generated function PtrCovarCholesky{M,T}(sp::StackPointer) where {M,T}
+    L = VectorizationBase.align(VectorizationBase.align(VectorizationBase.align(binomial2(M+1), T) + M) + M)
+    quote
+        $(Expr(:meta,:inline))
+        sp + $(L*sizeof(T)), PtrCovarCholesky{$M,$T,$L}(pointer(sp, T))
+    end
+end
 
 @generated function logdiag(C::Union{<:AbstractCorrCholesky{M,T,L},<:AbstractCovarCholesky{M,T,L}}) where {M,T,L}
     triangle_length = VectorizationBase.align(binomial2(M+1),T)
@@ -36,17 +58,27 @@ const AbstractCovarCholesky{M,T,L} = Union{CovarCholesky{M,T,L},PtrCovarCholesky
         end
     end
 end
+@generated function invdiag(C::Union{<:AbstractCorrCholesky{M,T,L},<:AbstractCovarCholesky{M,T,L}}) where {M,T,L}
+    triangle_length = VectorizationBase.align(VectorizationBase.align(binomial2(M+1),T) + M, T)
+    if L >= triangle_length + M
+        quote
+            $(Expr(:meta,:inline))
+            PtrVector{$M,$T,$(PaddedMatrices.calc_padding(M,T)),false}(pointer(C) + $(triangle_length*sizeof(T)))
+        end
+    else
+        quote
+            $(Expr(:meta,:inline))
+            d = PtrVector{$M,$T,$M,true}(pointer(C))
+            PaddedMatrices.LazyMap(SIMDPirates.vinv, d)
+        end
+    end
+end
 
 
 @generated PaddedMatrices.param_type_length(::Type{<: AbstractCorrCholesky{M}}) where {M} = StructuredMatrices.binomial2(M)
 @generated PaddedMatrices.param_type_length(::AbstractCorrCholesky{M}) where {M} = StructuredMatrices.binomial2(M)
 
-
-# struct Inverse__Correlation_Cholesky{M,T,L} <: AbstractMatrix{T}
-#     data::NTuple{T,L}
-#     # inverse::NTuple{T,L}
-# end
-@inline Base.pointer(L::PtrCorrCholesky) = L.ptr
+@inline Base.pointer(L::Union{PtrCorrCholesky,PtrCovarCholesky}) = L.ptr
 @inline Base.unsafe_convert(::Type{Ptr{T}}, L::PtrCorrCholesky{M,T}) where {M,T} = L.ptr
 
 abstract type AbstractCholeskyConstraintAdjoint{P,T,L} <: AbstractArray{T,4} end
@@ -490,7 +522,7 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
     i = 0
     for mp ∈ 1:M
         for mc ∈ mp+1:Mp1
-        i +=1
+            i +=1
             push!(q.args, :($jacobiansym[$i] = $(Symbol(:∂x_, mc, :_, mc, :_∂_, mp))))
         end
     end
@@ -498,7 +530,6 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
         for mp ∈ 1:mc
             for mr ∈ mc+1:Mp1 # iter through columns of z
                 i += 1
-                #                    push!(q.args, :($jacobiansym[$i] = $(T(0.5)) * $(Symbol(:∂x_, mr, :_, mc, :_∂_, mp))))
                 push!(q.args, :($jacobiansym[$i] = $(Symbol(:∂x_, mr, :_, mc, :_∂_, mp))))
             end
         end
@@ -518,7 +549,6 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
 end
 
 @generated function lkj_constrain(zlkj::PaddedMatrices.AbstractFixedSizeVector{L,T}) where {T,L}
-    # L = StructuredMatrices.binomial2(M)
     lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(L, T, :zlkj)
     quote
         $lkjconstrain_q
@@ -526,7 +556,6 @@ end
     end
 end
 @generated function ∂lkj_constrain(zlkj::PaddedMatrices.AbstractFixedSizeVector{L,T}) where {L,T}
-    # L = StructuredMatrices.binomial2(M)
     lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym, lkjlogdetgrad, lkjjacobian = constrain_lkj_factor_jac_quote(L, T, :zlkj)
     quote
         $lkjconstrain_q
@@ -536,7 +565,6 @@ end
 
 
 @generated function lkj_constrain(sp::StackPointer, zlkj::PaddedMatrices.AbstractFixedSizeVector{L,T}, ::Val{Align} = Val{true}()) where {L,T,Align}
-    # L = StructuredMatrices.binomial2(M)
     lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(L, T, :zlkj, true, Align)
     quote
         # Inlined because of:
@@ -548,7 +576,6 @@ end
     end
 end
 @generated function ∂lkj_constrain(sp::StackPointer, zlkj::PaddedMatrices.AbstractFixedSizeVector{L,T}) where {L,T}
-    # L = StructuredMatrices.binomial2(M)
     lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym, lkjlogdetgrad, lkjjacobian = constrain_lkj_factor_jac_quote(L, T, :zlkj, true)
     quote
         # Inlined because of:
@@ -725,7 +752,7 @@ function load_parameter!(
         LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$N
             $loop_body
         end
-    end
+y    end
     #    println("\n\n\n\n\n")
 #    println(vloop)
 #    println("\n\n\n\n\n")
@@ -804,27 +831,34 @@ function parameter_names(::Type{<: AbstractCorrCholesky{M}}, s::Symbol) where {M
 end
 
 @generated function LinearAlgebra.mul!(
-    σL::AbstractCovarCholesky{M,T,MT},
+    σL::AbstractCovarCholesky{M,T,MTV},
     σ::Diagonal{T,<:AbstractFixedSizeVector{M,T,MV}},
-    L::AbstractCorrCholesky{M,T,MT}
-) where {M,MT,MV,T}
+    L::AbstractCorrCholesky{M,T,MTR}
+) where {M,MTV,MTR,MV,T}
     q = quote
-        σLpt = StructuredMatrices.PtrLowerTriangularMatrix{$M,Float64,$MT}(pointer(σL))
-        Lpt = StructuredMatrices.PtrLowerTriangularMatrix{$M,Float64,$MT}(pointer(L))
+        σLpt = StructuredMatrices.PtrLowerTriangularMatrix{$M,Float64,$MTR}(pointer(σL))
+        Lpt = StructuredMatrices.PtrLowerTriangularMatrix{$M,Float64,$MTR}(pointer(L))
         mul!(σLpt, σ, L)
     end
-    tri_length = binomial2(M+1)
+    tri_length = VectorizationBase.align(binomial2(M+1), T)
     # If it is too small to cache logdiag, don't.
-    if MT < triangle_length + M
+    if MTR < triangle_length + M
         push!(q.args, :σL)
         return q
+    end
+    loopbody = quote
+        logdiag_σL[m] = logσ[m] + logdiag_L[m]
+    end
+    if MTV >= MTR + M
+        push!(q.args, :(invdiag_σL = invdiag(σL)))
+        push!(loopbody.args, :( invdiag_σL[m] = vinv(σL[m]) ))
     end
     calc_logdiag_q = quote
         logdiag_σL = logdiag(σL)
         logdiag_L = logdiag(L)
         logσ = LazyMap(SLEEFPirates.log, σ)
         @vvectorize for m ∈ 1:$MV
-            logdiag_σL[m] = logσ[m] + logdiag_L[m]
+            $loopbody
         end
         σL
     end
@@ -832,5 +866,13 @@ end
     q
 end
 
-
+function Base.:*(
+    sp::StackPointer,
+    σ::Diagonal{T,<:AbstractFixedSizeVector{M,T,MV}},
+    L::AbstractCorrCholesky{M,T,MTR}
+) where {M,T,MV,MTR}
+    (sp, σL) = PtrCovarCholesky{M,T}(sp)
+    (sp, mul!(σL, σ, L))
+end
+    
 
