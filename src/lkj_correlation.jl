@@ -43,9 +43,16 @@ const AbstractCovarCholesky{M,T,L} = Union{CovarCholesky{M,T,L},PtrCovarCholesky
     end
 end
 
-@generated function logdiag(C::Union{<:AbstractCorrCholesky{M,T,L},<:AbstractCovarCholesky{M,T,L}}) where {M,T,L}
+function caches_logdiag(M, L)
     triangle_length = VectorizationBase.align(binomial2(M+1),T)
-    if L >= triangle_length + M
+    L >= triangle_length + M
+end
+function caches_invdiag(M, L)
+    triangle_length = VectorizationBase.align(VectorizationBase.align(binomial2(M+1),T) + M, T)
+    triangle_length, L >= triangle_length + M
+end
+@generated function logdiag(C::Union{<:AbstractCorrCholesky{M,T,L},<:AbstractCovarCholesky{M,T,L}}) where {M,T,L}
+    if caches_logdiag(M,L)
         quote
             $(Expr(:meta,:inline))
             PtrVector{$M,$T,$(PaddedMatrices.calc_padding(M,T)),false}(pointer(C) + $(triangle_length*sizeof(T)))
@@ -59,8 +66,8 @@ end
     end
 end
 @generated function invdiag(C::Union{<:AbstractCorrCholesky{M,T,L},<:AbstractCovarCholesky{M,T,L}}) where {M,T,L}
-    triangle_length = VectorizationBase.align(VectorizationBase.align(binomial2(M+1),T) + M, T)
-    if L >= triangle_length + M
+    triangle_length, cid = caches_invdiag(M, L)
+    if cid
         quote
             $(Expr(:meta,:inline))
             PtrVector{$M,$T,$(PaddedMatrices.calc_padding(M,T)),false}(pointer(C) + $(triangle_length*sizeof(T)))
