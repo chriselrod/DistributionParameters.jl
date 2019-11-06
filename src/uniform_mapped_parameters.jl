@@ -92,7 +92,7 @@ end
 @inline Base.:/(x::RealFloat, y) = Base.FastMath.div_fast(x.r, y)
 @inline Base.:/(x, y::RealFloat) = Base.FastMath.div_fast(x, y.r)
 @inline Base.:/(x::RealFloat, y::RealFloat) = Base.FastMath.div_fast(x.r, y.r)
-@inline function Base.:/(x::RealFloat{Bounds(0.0,Inf),Float64,Float64}, y::RealFloat{Bounds,0.0,Inf},Float64,Float64)
+@inline function Base.:/(x::RealFloat{Bounds(0.0,Inf),Float64,Float64}, y::RealFloat{Bounds(0.0,Inf),Float64,Float64})
     if B === Bounds(zero(T),typemax(T))
         RealFloat{B,T,T}(
             Base.FastMath.div_fast(x.r, y.r),
