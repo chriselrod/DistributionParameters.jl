@@ -43,14 +43,19 @@ const AbstractCovarCholesky{M,T,L} = Union{CovarCholesky{M,T,L},PtrCovarCholesky
     end
 end
 
-function caches_logdiag(M, L)
+@inline ReverseDiffExpressionsBase.alloc_adjoint(sp::StackPointer, C::AbstractCorrCholesky{M,T}) where {M,T} = StructuredMatrices.PtrLowerTriangularMatrix{M,T}(sp)
+@inline ReverseDiffExpressionsBase.alloc_adjoint(sp::StackPointer, C::AbstractCovarCholesky{M,T}) where {M,T} = StructuredMatrices.PtrLowerTriangularMatrix{M,T}(sp)
+
+function caches_logdiag(M, L, ::Type{T} = Float64) where {T}
     triangle_length = VectorizationBase.align(binomial2(M+1),T)
     L >= triangle_length + M
 end
-function caches_invdiag(M, L)
+function caches_invdiag(M, L, ::Type{T} = Float64) where {T}
     triangle_length = VectorizationBase.align(VectorizationBase.align(binomial2(M+1),T) + M, T)
     triangle_length, L >= triangle_length + M
 end
+@inline logdiag(C::StructuredMatrices.AbstractDiagTriangularMatrix{M,T,L}) where {M,T,L} = PaddedMatrices.LazyMap(SLEEFPirates.log, PtrVector{M,T,M,true}(pointer(C)))
+@inline invdiag(C::StructuredMatrices.AbstractDiagTriangularMatrix{M,T,L}) where {M,T,L} = PaddedMatrices.LazyMap(SIMDPirates.vinv, PtrVector{M,T,M,true}(pointer(C)))
 @generated function logdiag(C::Union{<:AbstractCorrCholesky{M,T,L},<:AbstractCovarCholesky{M,T,L}}) where {M,T,L}
     if caches_logdiag(M,L)
         quote
