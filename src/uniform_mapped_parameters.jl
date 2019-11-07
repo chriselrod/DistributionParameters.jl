@@ -21,21 +21,21 @@ end
     if B === Bounds(zero(T),typemax(T))
         PtrArray{S,T,N,X,L,true}(A.uptr)
     else
-        LazyMap{S,T,N,X,L}(SLEEFPirates.log, A.ptr)
+        LazyMap{typeof(SLEEFPirates.log),S,T,N,X,L}(SLEEFPirates.log, A.ptr)
     end
 end
 @inline function PaddedMatrices.LazyMap(f::typeof(SLEEFPirates.log), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
     if B === Bounds(zero(T),typemax(T))
         PtrArray{S,T,N,X,L,true}(A.uptr)
     else
-        LazyMap{S,T,N,X,L}(SLEEFPirates.log, A.ptr)
+        LazyMap{typeof(SLEEFPirates.log),S,T,N,X,L}(SLEEFPirates.log, A.ptr)
     end
 end
 @inline function PaddedMatrices.LazyMap(f::typeof(SLEEFPirates.logit), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
     if B === Bounds(zero(T),one(T))
         PtrArray{S,T,N,X,L,true}(A.uptr)
     else
-        LazyMap{S,T,N,X,L}(SLEEFPirates.logit, A.ptr)
+        LazyMap{typeof(SLEEFPirates.logit),S,T,N,X,L}(SLEEFPirates.logit, A.ptr)
     end
 end
 

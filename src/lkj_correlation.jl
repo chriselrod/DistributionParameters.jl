@@ -36,7 +36,7 @@ const AbstractCorrCholesky{M,T,L} = Union{CorrCholesky{M,T,L},PtrCorrCholesky{M,
 const AbstractCovarCholesky{M,T,L} = Union{CovarCholesky{M,T,L},PtrCovarCholesky{M,T,L}}
 
 @generated function PtrCovarCholesky{M,T}(sp::StackPointer) where {M,T}
-    L = VectorizationBase.align(VectorizationBase.align(VectorizationBase.align(binomial2(M+1), T) + M) + M)
+    L = VectorizationBase.align(VectorizationBase.align(VectorizationBase.align(binomial2(M+1), T) + M, T) + M, T)
     quote
         $(Expr(:meta,:inline))
         sp + $(L*sizeof(T)), PtrCovarCholesky{$M,$T,$L}(pointer(sp, T))
@@ -110,7 +110,7 @@ end
 struct PtrCholeskyConstraintAdjoint{P,T,L} <: AbstractCholeskyConstraintAdjoint{P,T,L}
     ptr::Ptr{T}
 end
-@inline VectorizationBase.vectorizable(A::PtrCorrCholesky{M,T}) where {M,T} = VectorizationBase.Pointer(A.ptr)
+@inline VectorizationBase.vectorizable(A::Union{PtrCorrCholesky,PtrCovarCholesky}) = VectorizationBase.Pointer(A.ptr)
 @inline Base.pointer(A::PtrCholeskyConstraintAdjoint) = A.ptr
 @inline Base.unsafe_convert(::Type{Ptr{T}}, A::PtrCholeskyConstraintAdjoint{P,T}) where {P,T} = A.ptr
 Base.size(::AbstractCholeskyConstraintAdjoint{P}) where {P} = (P,P,P-1,P-1)
