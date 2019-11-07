@@ -43,24 +43,32 @@ const AbstractCovarCholesky{M,T,L} = Union{CovarCholesky{M,T,L},PtrCovarCholesky
     end
 end
 
+@generated function ReverseDiffExpressionsBase.alloc_adjoint(C::Union{<:AbstractCorrCholesky{M,T},<:AbstractCovarCholesky{M,T}}) where {M,T}
+    L = PaddedMatrices.calc_padding(StructuredMatrices.binomial2(M+1), T)
+    quote
+        $(Expr(:meta,:inline))
+        StructuredMatrices.PtrLowerTriangularMatrix{$M,$T,$L}(SIMDPirates.alloca(Val{$L}(),$T))
+    end
+end
 @inline ReverseDiffExpressionsBase.alloc_adjoint(sp::StackPointer, C::AbstractCorrCholesky{M,T}) where {M,T} = StructuredMatrices.PtrLowerTriangularMatrix{M,T}(sp)
 @inline ReverseDiffExpressionsBase.alloc_adjoint(sp::StackPointer, C::AbstractCovarCholesky{M,T}) where {M,T} = StructuredMatrices.PtrLowerTriangularMatrix{M,T}(sp)
 
 function caches_logdiag(M, L, ::Type{T} = Float64) where {T}
-    triangle_length = VectorizationBase.align(binomial2(M+1),T)
-    L >= triangle_length + M
+    offset_length = VectorizationBase.align(binomial2(M+1),T)
+    L >= offset_length + M, offset_length
 end
 function caches_invdiag(M, L, ::Type{T} = Float64) where {T}
-    triangle_length = VectorizationBase.align(VectorizationBase.align(binomial2(M+1),T) + M, T)
-    triangle_length, L >= triangle_length + M
+    offset_length = VectorizationBase.align(VectorizationBase.align(binomial2(M+1),T) + M, T)
+    L >= offset_length + M, offset_length
 end
 @inline logdiag(C::StructuredMatrices.AbstractDiagTriangularMatrix{M,T,L}) where {M,T,L} = PaddedMatrices.LazyMap(SLEEFPirates.log, PtrVector{M,T,M,true}(pointer(C)))
 @inline invdiag(C::StructuredMatrices.AbstractDiagTriangularMatrix{M,T,L}) where {M,T,L} = PaddedMatrices.LazyMap(SIMDPirates.vinv, PtrVector{M,T,M,true}(pointer(C)))
 @generated function logdiag(C::Union{<:AbstractCorrCholesky{M,T,L},<:AbstractCovarCholesky{M,T,L}}) where {M,T,L}
-    if caches_logdiag(M,L)
+    c, offset = caches_logdiag(M,L)
+    if c
         quote
             $(Expr(:meta,:inline))
-            PtrVector{$M,$T,$(PaddedMatrices.calc_padding(M,T)),false}(pointer(C) + $(triangle_length*sizeof(T)))
+            PtrVector{$M,$T,$(PaddedMatrices.calc_padding(M,T)),false}(pointer(C) + $(offset*sizeof(T)))
         end
     else
         quote
@@ -71,11 +79,11 @@ end
     end
 end
 @generated function invdiag(C::Union{<:AbstractCorrCholesky{M,T,L},<:AbstractCovarCholesky{M,T,L}}) where {M,T,L}
-    triangle_length, cid = caches_invdiag(M, L)
-    if cid
+    c, offset = caches_invdiag(M, L)
+    if c
         quote
             $(Expr(:meta,:inline))
-            PtrVector{$M,$T,$(PaddedMatrices.calc_padding(M,T)),false}(pointer(C) + $(triangle_length*sizeof(T)))
+            PtrVector{$M,$T,$(PaddedMatrices.calc_padding(M,T)),false}(pointer(C) + $(offset*sizeof(T)))
         end
     else
         quote
@@ -90,6 +98,7 @@ end
 @generated PaddedMatrices.param_type_length(::Type{<: AbstractCorrCholesky{M}}) where {M} = StructuredMatrices.binomial2(M)
 @generated PaddedMatrices.param_type_length(::AbstractCorrCholesky{M}) where {M} = StructuredMatrices.binomial2(M)
 
+@inline Base.pointer(L::Union{CorrCholesky{M,T},CovarCholesky{M,T}}) where {M,T} = Base.unsafe_convert(Ptr{T}, pointer_from_objref(L))
 @inline Base.pointer(L::Union{PtrCorrCholesky,PtrCovarCholesky}) = L.ptr
 @inline Base.unsafe_convert(::Type{Ptr{T}}, L::PtrCorrCholesky{M,T}) where {M,T} = L.ptr
 
@@ -620,7 +629,6 @@ function load_parameter!(
     Wm1 = W - 1
     rem = N & Wm1
     L = (N + Wm1) & ~Wm1
-    # @show N, L
     log_jac = gensym(:log_jac)
     zsym = gensym(:z) # z ∈ (-1, 1)
     q = quote
@@ -634,7 +642,6 @@ function load_parameter!(
     end
     i = gensym(:i)
     loop_body = quote
-        # $ninvlogitout = one($T) / (one($T) + $m.SLEEFPirates.exp($(T(0.5)) * $θ[$i]))
         $ninvlogitout = one($T) / (one($T) + $m.SLEEFPirates.exp($θ[$i]))
     end
     if partial
@@ -656,53 +663,31 @@ function load_parameter!(
     end))
     lkjlogdetsym = gensym(:lkjlogdetsym)
     if partial
-        # lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym, lkjlogdetgrad, lkjjacobian = constrain_lkj_factor_jac_quote(N, T, zsym)
         seedlkj = gensym(:seedlkj)
         lkjlogdetgradsym = gensym(:lkjlogdetgrad)
         lkjjacobiansym = gensym(:lkjjacobian)
         spq = quote
             $seedlkj = ($(adj(out)) * $lkjjacobiansym).parent
-            LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$L
+            LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$N
                 $seedlkj[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
             end
         end
         push!(second_pass, macroexpand(m, spq))
         push!(q.args, quote
-            # $zsym = ConstantFixedSizeVector{$M}($mv)
-            # $lkjconstrain_q
-            # $out = $lkjconstrained_expr
               $out, $lkjlogdetsym, $lkjlogdetgradsym, $lkjjacobiansym = DistributionParameters.∂lkj_constrain($zsym)
               $θ += $N
-              $seedlkj = ReverseDiffExpressionsBase.alloc_adjoint(pointer(∂θ), $out)
-              # $seedlkj = PtrVector{$N,$T,$N,true}(pointer(∂θ))
+              $seedlkj = $m.alloc_adjoint(pointer($∂θ), $out)
+              $(adj(out)) = $m.alloc_adjoint($out)
               $∂θ += $N
-            # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
-            # target += $(T(0.5)) * ($log_jac + $lkjlogdetsym)
-            # println("log_jac invlogit")
-            # println($log_jac)
-            # println("log_jac lkj")
-            # println($lkjlogdetsym)
         end)
-        # @show second_pass
     else
-        # lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(N, T, zsym)
-
         push!(q.args, quote
-            # $zsym = ConstantFixedSizeVector{$M}($mv)
-            # $lkjconstrain_q
-            # $out = $lkjconstrained_expr
-            $out, $lkjlogdetsym = DistributionParameters.lkj_constrain($zsym)
+            $out, $lkjlogdetsym = $m.DistributionParameters.lkj_constrain($zsym)
             $θ += $N
-            # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
-            
-#            target += ($log_jac + $lkjlogdetsym)
         end)
     end
     logjac && push!(q.args, :(target = $m.vadd(target, $log_jac + $lkjlogdetsym)))
-    # push!(q.args, :(@show $zsym))
-
     push!(first_pass, q)
-
     nothing
 end
 function load_parameter!(
@@ -714,19 +699,12 @@ function load_parameter!(
     ninvlogitout = gensym(out)
     invlogitout = gensym(out)
     ∂invlogitout = gensym(out)
-
     W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
     sumθᵢ = gensym(:sumθᵢ)
-
     N = (M * (M-1)) >>> 1
-
     Wm1 = W - 1
     rem = N & Wm1
     L = (N + Wm1) & ~Wm1
-    # @show N, L
- #   if logjac
- #       log_jac = gensym(:log_jac)
- #   end
     zsym = gensym(:z) # z ∈ (-1, 1)
     zsymoffset = binomial2(M+1)
     if partial
@@ -735,17 +713,13 @@ function load_parameter!(
     # zsym will be discarded, so we allocate it behind all the data we actually return.
     q = quote
         $zsym = $m.PtrVector{$N,$T}(pointer($sp + $(zsymoffset*sizeof(T)),$T))
-#        $zsym = FixedSizeVector{$N,$T}(undef)
-        # $log_jac = DistributionParameters.SIMDPirates.vbroadcast(Vec{$W,$T}, zero($T))
     end
-#    logjac && push!(q.args, Expr(:(=), log_jac, zero(T)))
     if partial
         push!(q.args, :(($sp,$invlogitout) = $m.PtrVector{$L,$T}($sp)))
         push!(q.args, :(($sp,$∂invlogitout) = $m.PtrVector{$L,$T}($sp)))
     end
     i = gensym(:i)
     loop_body = quote
-        # $ninvlogitout = one($T) / (one($T) + SLEEFPirates.exp($(T(0.5)) * $θ[$i]))
         $ninvlogitout = one($T) / (one($T) + $m.SLEEFPirates.exp($θ[$i]))
     end
     if partial
@@ -759,19 +733,14 @@ function load_parameter!(
         push!(loop_body.args, :($zsym[$i] = $m.SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
         logjac && push!(loop_body.args, :(target = $m.vadd(target, $m.SLEEFPirates.log($∂invlogitout))))
     end
-
     vloop_quote = quote
         LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$N
             $loop_body
         end
-y    end
-    #    println("\n\n\n\n\n")
-#    println(vloop)
-#    println("\n\n\n\n\n")
+    end
     push!(q.args, macroexpand(m, vloop_quote))
     lkjlogdetsym = gensym(:lkjlogdetsym)
     if partial
-        # lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym, lkjlogdetgrad, lkjjacobian = constrain_lkj_factor_jac_quote(N, T, zsym)
         seedlkj = gensym(:seedlkj)
         lkjlogdetgradsym = gensym(:lkjlogdetgrad)
         lkjjacobiansym = gensym(:lkjjacobian)
@@ -788,34 +757,20 @@ y    end
         end)
         push!(q.args, quote
             ($sp, ($out, $lkjlogdetsym, $lkjlogdetgradsym, $lkjjacobiansym)) = DistributionParameters.∂lkj_constrain($sp, $zsym)
-            $θ += $N
-            # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
-            # target += $(T(0.5)) * ($log_jac + $lkjlogdetsym)
-            # println("log_jac invlogit")
-            # println($log_jac)
-            # println("log_jac lkj")
-            # println($lkjlogdetsym)
-
-#            target += ($log_jac +  $lkjlogdetsym)
+              $θ += $N
+              $seedlkj = $m.alloc_adjoint(pointer($∂θ), $out)
+              ($sp, $(adj(out))) = $m.alloc_adjoint($sp, $out)
+              $∂θ += $N
               end)
-        # @show second_pass
     else
-        # lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym = constrain_lkj_factor_quote(N, T, zsym)
-
         push!(q.args, quote
             ($sp, ($out, $lkjlogdetsym)) = DistributionParameters.lkj_constrain($sp, $zsym, Val{$(!exportparam)}())
             $θ += $N
-            # target += DistributionParameters.SIMDPirates.vsum($log_jac) + $lkjlogdetsym
-#            target = $m.SIMDPirates.$m.vadd(target, $log_jac + $lkjlogdetsym)
-#            target += ($log_jac + $lkjlogdetsym)
         end)
     end
     logjac && push!(q.args, :( target = $m.vadd(target, $lkjlogdetsym)))
-
-    # push!(q.args, :(@show $zsym))
-
     push!(first_pass, q)
-
+    push!(first_pass, :())
     nothing
 end
 
@@ -852,24 +807,29 @@ end
         Lpt = StructuredMatrices.PtrLowerTriangularMatrix{$M,Float64,$MTR}(pointer(L))
         mul!(σLpt, σ, L)
     end
-    tri_length = VectorizationBase.align(binomial2(M+1), T)
-    # If it is too small to cache logdiag, don't.
-    if MTR < triangle_length + M
+    σLcaches_ld = first(caches_logdiag(M, MTV, T))
+    # tri_length = VectorizationBase.align(binomial2(M+1), T)
+    # If σL does not have space, we don't calculate it.
+    if !σLcaches_ld
         push!(q.args, :σL)
         return q
     end
+    # We need at least one loop
     loopbody = quote
         logdiag_σL[m] = logσ[m] + logdiag_L[m]
     end
-    if MTV >= MTR + M
+    # Do we also calculate invdiag?
+    σLcaches_inv = first(caches_invdiag(M, MTV, T))
+    if σLcaches_inv
         push!(q.args, :(invdiag_σL = invdiag(σL)))
-        push!(loopbody.args, :( invdiag_σL[m] = vinv(σL[m]) ))
+        push!(q.args, :(invdiag_L = invdiag(L)))
+        push!(loopbody.args, :( invdiag_σL[m] = invdiag_L[m] ))
     end
     calc_logdiag_q = quote
         logdiag_σL = logdiag(σL)
         logdiag_L = logdiag(L)
-        logσ = LazyMap(SLEEFPirates.log, σ)
-        @vvectorize for m ∈ 1:$MV
+        logσ = LazyMap(SLEEFPirates.log, σ.diag)
+        @vvectorize $T for m ∈ 1:$MV
             $loopbody
         end
         σL
@@ -878,7 +838,7 @@ end
     q
 end
 
-function Base.:*(
+@inline function Base.:*(
     sp::StackPointer,
     σ::Diagonal{T,<:AbstractFixedSizeVector{M,T,MV}},
     L::AbstractCorrCholesky{M,T,MTR}

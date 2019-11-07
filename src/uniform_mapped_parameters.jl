@@ -3,7 +3,8 @@ struct RealFloat{B,T<:Real,U<:Union{T,Nothing}} <: Real
     r::T
     u::U
 end
-struct RealArray{S,B,T,N,X,L,U<:Union{Nothing,Ptr{T}}} <: PaddedMatrices.AbstractMutableFixedSizeArray{S,T,N,X,L}
+# struct RealArray{S,B,T,N,X,L,U<:Union{Nothing,Ptr{T}}} <: PaddedMatrices.AbstractMutableFixedSizeArray{S,T,N,X,L}
+struct RealArray{S,B,T,N,X,L,U} <: PaddedMatrices.AbstractMutableFixedSizeArray{S,T,N,X,L}
     ptr::Ptr{T}
     utpr::U
 end
@@ -152,7 +153,7 @@ end
 
 
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{RealFloat}, partial::Bool = false,
+    first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol, ::Type{RealFloat}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 )
     T = Float64
@@ -165,7 +166,7 @@ end
 
 
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{RealFloat{BT}}, partial::Bool = false,
+    first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol, ::Type{RealFloat{BT}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {BT}
     if BT isa Bounds
@@ -183,9 +184,8 @@ function load_parameter!(
     )
 end
 
-
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{RealFloat{B,T}}, partial::Bool = false,
+    first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol, ::Type{RealFloat{B,T}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {T, B}
     shape = Int[]
@@ -198,7 +198,7 @@ function load_parameter!(
 end
 
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{<:RealArray{S}}, partial::Bool = false,
+    first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol, ::Type{<:RealArray{S}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {S}
     T = Float64
@@ -211,7 +211,7 @@ end
 
 
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{<:RealArray{S,BT}}, partial::Bool = false,
+    first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol, ::Type{<:RealArray{S,BT}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {S,BT}
     if BT isa Bounds
@@ -230,7 +230,7 @@ function load_parameter!(
 end
 
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{<:RealArray{S,B,T}}, partial::Bool = false,
+    first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol, ::Type{<:RealArray{S,B,T}}, partial::Bool = false,
     m::Module = DistributionParameters, sptr::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
 ) where {S,B,T}
     load_transformations!(

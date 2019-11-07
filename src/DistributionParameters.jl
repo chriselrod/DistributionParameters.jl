@@ -7,7 +7,7 @@ using PaddedMatrices, StructuredMatrices, LinearAlgebra,
 using PaddedMatrices: StackPointer, DynamicPtrMatrix,
     AbstractMutableFixedSizeVector, AbstractFixedSizeVector
 
-# using ReverseSourceToSourceDiffBase: Target
+using ReverseDiffExpressionsBase: adj
 
 export RealFloat, RealArray, RealVector, RealMatrix, Bounds, MissingDataArray, maybe_missing,
     constrain, CorrCholesky, CovarCholesky, DynamicCovarianceMatrix
