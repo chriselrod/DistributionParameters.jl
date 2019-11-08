@@ -6,7 +6,7 @@ end
 # struct RealArray{S,B,T,N,X,L,U<:Union{Nothing,Ptr{T}}} <: PaddedMatrices.AbstractMutableFixedSizeArray{S,T,N,X,L}
 struct RealArray{S,B,T,N,X,L,U} <: PaddedMatrices.AbstractMutableFixedSizeArray{S,T,N,X,L}
     ptr::Ptr{T}
-    utpr::U
+    uptr::U
 end
 const RealVector{M,B,T,L,U} = RealArray{Tuple{M},B,T,1,Tuple{1},L,U}
 const RealMatrix{M,N,B,T,L,U} = RealArray{Tuple{M,N},B,T,2,Tuple{1,M},L,U}
@@ -17,25 +17,43 @@ PaddedMatrices.type_length(::Type{<:RealFloat}) = 1
 @inline function PtrArray(A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
     PtrArray{S,T,N,X,L,true}(pointer(A))
 end
-@inline function PaddedMatrices.LazyMap(f::typeof(Base.log), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
+@generated function PaddedMatrices.LazyMap(f::typeof(Base.log), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
     if B === Bounds(zero(T),typemax(T))
-        PtrArray{S,T,N,X,L,true}(A.uptr)
+        quote
+            # $(Expr(:meta,:inline))
+            PaddedMatrices.PtrArray{$S,$T,$N,$X,$L,true}(A.uptr)
+        end
     else
-        LazyMap{typeof(SLEEFPirates.log),S,T,N,X,L}(SLEEFPirates.log, A.ptr)
+        quote
+            $(Expr(:meta,:inline))
+            LazyMap{typeof(SLEEFPirates.log),$S,$T,$N,$X,$L}(SLEEFPirates.log, A.ptr)
+        end
     end
 end
-@inline function PaddedMatrices.LazyMap(f::typeof(SLEEFPirates.log), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
+@generated function PaddedMatrices.LazyMap(f::typeof(SLEEFPirates.log), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
     if B === Bounds(zero(T),typemax(T))
-        PtrArray{S,T,N,X,L,true}(A.uptr)
+        quote
+            $(Expr(:meta,:inline))
+            PaddedMatrices.PtrArray{$S,$T,$N,$X,$L,true}(A.uptr)
+        end
     else
-        LazyMap{typeof(SLEEFPirates.log),S,T,N,X,L}(SLEEFPirates.log, A.ptr)
+        quote
+            $(Expr(:meta,:inline))
+            LazyMap{typeof(SLEEFPirates.log),$S,$T,$N,$X,$L}(SLEEFPirates.log, A.ptr)
+        end
     end
 end
-@inline function PaddedMatrices.LazyMap(f::typeof(SLEEFPirates.logit), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
+@generated function PaddedMatrices.LazyMap(f::typeof(SLEEFPirates.logit), A::RealArray{S,B,T,N,X,L,Ptr{T}}) where {S,B,T,N,X,L}
     if B === Bounds(zero(T),one(T))
-        PtrArray{S,T,N,X,L,true}(A.uptr)
+        quote
+            $(Expr(:meta,:inline))
+            PtrArray{$S,$T,$N,$X,$L,true}(A.uptr)
+        end
     else
-        LazyMap{typeof(SLEEFPirates.logit),S,T,N,X,L}(SLEEFPirates.logit, A.ptr)
+        quote
+            $(Expr(:meta,:inline))
+            LazyMap{typeof(SLEEFPirates.logit),$S,$T,$N,$X,$L}(SLEEFPirates.logit, A.ptr)
+        end
     end
 end
 

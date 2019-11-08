@@ -173,7 +173,7 @@ function Base.getindex(adj::AbstractCholeskyConstraintAdjoint{Mp1,T,L}, i, j, k,
     zero(T)
 end
 
-function corr_cholesky_adjoint_mul_quote(Mp1,T,sp::Bool = false)
+function corr_cholesky_adjoint_mul_quote(Mp1, T)#,sp::Bool = false)
     M = Mp1 - 1
     q = quote end
     StructuredMatrices.load_packed_L_quote!(q.args, Mp1, :∂target_∂L, :t)
@@ -211,29 +211,31 @@ function corr_cholesky_adjoint_mul_quote(Mp1,T,sp::Bool = false)
     # end
     lkj_l = StructuredMatrices.binomial2(Mp1)
     lkj_l_full = PaddedMatrices.calc_padding(lkj_l, T)
-    if sp
-        push!(q.args, :(sptr = pointer(sp, $T); out = PtrVector{$lkj_l,$T}(sptr)))
-        ind = 0
-        size_T = sizeof(T)
-        for pc ∈ 1:M
-            for pr ∈ pc:M
-                push!(q.args, :(VectorizationBase.store!(sptr + $size_T*$ind, $(PaddedMatrices.sym(:∂lkj_∂z, pr, pc)))))
-                ind += 1
-            end
+    # if sp
+        # push!(q.args, :(sptr = pointer(sp, $T); out = PtrVector{$lkj_l,$T}(sptr)))
+    push!(q.args, :(sptr = pointer(out)))
+    ind = 0
+    size_T = sizeof(T)
+    for pc ∈ 1:M
+        for pr ∈ pc:M
+            push!(q.args, :(VectorizationBase.store!(sptr + $size_T*$ind, $(PaddedMatrices.sym(:∂lkj_∂z, pr, pc)))))
+            ind += 1
         end
-        push!(q.args, :(sp + $(VectorizationBase.align(lkj_l_full*size_T)), out' ))
-    else
-        outtup = Expr(:tuple,)
-        for pc ∈ 1:M
-            for pr ∈ pc:M
-                push!(outtup.args, PaddedMatrices.sym(:∂lkj_∂z, pr, pc))
-            end
-        end
-        for p ∈ StructuredMatrices.binomial2(Mp1)+1:lkj_l_full
-            push!(outtup.args, zero(T))
-        end
-        push!(q.args, :(ConstantFixedSizeVector{$lkj_l, $T, $lkj_l_full}($outtup)'))
     end
+    push!(q.args, :out)
+    # push!(q.args, :(sp + $(VectorizationBase.align(lkj_l_full*size_T)), out' ))
+    # else
+    #     outtup = Expr(:tuple,)
+    #     for pc ∈ 1:M
+    #         for pr ∈ pc:M
+    #             push!(outtup.args, PaddedMatrices.sym(:∂lkj_∂z, pr, pc))
+    #         end
+    #     end
+    #     for p ∈ StructuredMatrices.binomial2(Mp1)+1:lkj_l_full
+    #         push!(outtup.args, zero(T))
+    #     end
+    #     push!(q.args, :(ConstantFixedSizeVector{$lkj_l, $T, $lkj_l_full}($outtup)'))
+    # end
     quote
         @fastmath @inbounds begin
             $q
@@ -241,35 +243,22 @@ function corr_cholesky_adjoint_mul_quote(Mp1,T,sp::Bool = false)
     end
 end
 
-@generated function Base.:*(
-    t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizeVector{BP,T,BPL}},
-    adj::AbstractCholeskyConstraintAdjoint{Mp1,T,L}
-) where {Mp1,T,L,BP,BPL}
-    corr_cholesky_adjoint_mul_quote(Mp1,T)
-end
+# @generated function LinearAlgebra.mul!(
+#     c::AbstractLowerTriangularMatrix{Mp1,T},
+#     t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizeVector{BP,T,BPL}},
+#     adj::AbstractCholeskyConstraintAdjoint{Mp1,T,L}
+# ) where {Mp1,T,L,BP,BPL}
+#     corr_cholesky_adjoint_mul_quote(Mp1,T)
+# end
 
-@generated function Base.:*(
+@generated function LinearAlgebra.mul!(
+    out::StructuredMatrices.AbstractLowerTriangularMatrix{Mp1,T},
     t::StructuredMatrices.AbstractLowerTriangularMatrix{Mp1,T},
     adj::AbstractCholeskyConstraintAdjoint{Mp1,T,L}
 ) where {Mp1,T,L}
     corr_cholesky_adjoint_mul_quote(Mp1,T)
 end
 
-@generated function Base.:*(
-    sp::StackPointer,
-    t::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractFixedSizeVector{BP,T,BPL}},
-    adj::AbstractCholeskyConstraintAdjoint{Mp1,T,L}
-) where {Mp1,T,L,BP,BPL}
-    corr_cholesky_adjoint_mul_quote(Mp1,T,true)
-end
-
-@generated function Base.:*(
-    sp::StackPointer,
-    t::StructuredMatrices.AbstractLowerTriangularMatrix{Mp1,T},
-    adj::AbstractCholeskyConstraintAdjoint{Mp1,T,L}
-) where {Mp1,T,L}
-    corr_cholesky_adjoint_mul_quote(Mp1,T,true)
-end
 
 
 
@@ -667,7 +656,7 @@ function load_parameter!(
         lkjlogdetgradsym = gensym(:lkjlogdetgrad)
         lkjjacobiansym = gensym(:lkjjacobian)
         spq = quote
-            $seedlkj = ($(adj(out)) * $lkjjacobiansym).parent
+            mul!($seedlkj, $(adj(out)), $lkjjacobiansym)
             LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$N
                 $seedlkj[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
             end
@@ -746,8 +735,9 @@ function load_parameter!(
         lkjjacobiansym = gensym(:lkjjacobian)
         seedlkjgensym = gensym(seedlkj)
         push!(second_pass, quote
-              ($sp, $seedlkjgensym) = $sp * $(adj(out)) * $lkjjacobiansym
-              $seedlkj = $seedlkjgensym.parent
+              # ($sp, $seedlkjgensym) = $sp * $(adj(out)) * $lkjjacobiansym
+              # $seedlkj = $seedlkjgensym.parent
+              mul!($seedlkj, $(adj(out)), $lkjjacobiansym)
               $(macroexpand(m, quote
                             LoopVectorization.@vvectorize $T $((m)) for $i ∈ 1:$N
                             $∂θ[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
