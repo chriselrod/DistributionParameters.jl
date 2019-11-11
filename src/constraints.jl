@@ -94,7 +94,7 @@ function load_transformations!(
         elseif exportparam
             isym = gensym(:i)
             loop_quote = quote
-                LoopVectorization.@vvectorize $T $m for $isym ∈ 1:$M
+                LoopVectorization.@vvectorize_unsafe $T $m for $isym ∈ 1:$M
                     $out[$isym] = $θ[$isym]
                 end
             end
@@ -124,7 +124,7 @@ function load_transformations!(
             end
             logjac && push!(loopbody.args, :(target = $m.vadd(target, $logout)))
             loop_quote = quote
-                LoopVectorization.@vvectorize $T $m for $isym ∈ 1:$M
+                LoopVectorization.@vvectorize_unsafe $T $m for $isym ∈ 1:$M
                     $loopbody
                 end
             end
@@ -147,7 +147,7 @@ function load_transformations!(
             else
                 isym = gensym(:i)
                 storeloop = quote
-                    LoopVectorization.@vvectorize $T $m for $isym ∈ 1:$M
+                    LoopVectorization.@vvectorize_unsafe $T $m for $isym ∈ 1:$M
                         $seedout[$isym] = $m.SIMDPirates.vmuladd($seedout[$isym], $out[$isym], one($T))
                     end
                 end
@@ -171,7 +171,7 @@ function load_transformations!(
             end
             logjac && push!(loopbody.args, :(target = $m.vadd(target, $logout)))
             loop_quote = quote
-                LoopVectorization.@vvectorize $T $m for $isym ∈ 1:$M
+                LoopVectorization.@vvectorize_unsafe $T $m for $isym ∈ 1:$M
                     $loopbody
                 end
             end
@@ -187,7 +187,7 @@ function load_transformations!(
             else
                 isym = gensym(:i)
                 storeloop = quote
-                    LoopVectorization.@vvectorize $T $m for $isym ∈ 1:$M
+                    LoopVectorization.@vvectorize_unsafe $T $m for $isym ∈ 1:$M
                         $seedout[$isym] = $m.SIMDPirates.vfnmadd($seedout[$isym], $out[$isym], one($T))
                     end
                 end
@@ -269,13 +269,13 @@ function load_transformations!(
                 end
                 logjac && push!(loop_body.args, :(target = $m.vadd(target, $m.SLEEFPirates.log($∂ilt))))
                 loop_quote = quote
-                    LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
+                    LoopVectorization.@vvectorize_unsafe $T $((m)) for $isym ∈ 1:$M
                         $loop_body
                     end
                 end
                 push!(fp, macroexpand(m, loop_quote))
                 storeloop = quote
-                    LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
+                    LoopVectorization.@vvectorize_unsafe $T $((m)) for $isym ∈ 1:$M
                         $seedout[$isym] = one($T) - $(T(2)) * $invlogit[$isym] +
                             ($seedout)[$isym] * $(scale == one(T) ? :($∂invlogit[$isym]) : :($∂invlogit[$isym] * $scale))
                     end
@@ -292,7 +292,7 @@ function load_transformations!(
                 logjac && push!(loop_body.args, :(target = $m.vadd(target, $m.SLEEFPirates.log($invlogit * $ninvlogit))))
                 loop_quote = quote
                     $outinit
-                    LoopVectorization.@vvectorize $T $((m)) for $isym ∈ 1:$M
+                    LoopVectorization.@vvectorize_unsafe $T $((m)) for $isym ∈ 1:$M
                         $loop_body
                     end
                 end
