@@ -315,7 +315,10 @@ function constrain_lkj_factor_quote(L::Int, T, zsym::Symbol, sp::Bool = false, a
     lkjsym = gensym(:CorrCholeksy)
     if sp
         push!(q.args, :($lkjsym = DistributionParameters.PtrCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T))))
-        sp_increment = VectorizationBase.align(sizeof(T) * lkj_length)
+        sp_increment = sizeof(T) * lkj_length
+        if align_sp
+            sp_increment = VectorizationBase.align(sp_increment)
+        end
         push!(q.args, :(sp += $sp_increment))
     else
         push!(q.args, :($lkjsym = DistributionParameters.CorrCholesky{$Mp1,$T,$lkj_length}(undef)))
@@ -337,18 +340,18 @@ function constrain_lkj_factor_quote(L::Int, T, zsym::Symbol, sp::Bool = false, a
         logdiag_quote = if Mp1 % W == 1
             quote
                 $lkjsym[$(lkj_length_triangle + 1)] = zero($T)
-                @simd ivdep for $msym ∈ 1:$M
+                LoopVectorization.@vvectorize_unsafe $T for $msym ∈ 1:$M
                     $lkjsym[$msym+$(lkj_length_triangle+1)] = SLEEFPirates.log($lkjsym[$msym+1])
                 end
             end
         else
             quote
-                @simd ivdep for $msym ∈ 1:$(PaddedMatrices.calc_padding(Mp1,T))
+                LoopVectorization.@vvectorize_unsafe $T for $msym ∈ 1:$(PaddedMatrices.calc_padding(Mp1,T))
                     $lkjsym[$msym+$lkj_length_triangle] = SLEEFPirates.log($lkjsym[$msym])
                 end
             end
         end
-        push!(q.args, logdiag_quote)
+        push!(q.args, macroexpand(LoopVectorization, logdiag_quote))
     end
     return quote
         @fastmath @inbounds begin
@@ -486,23 +489,23 @@ function constrain_lkj_factor_jac_quote(L, T, zsym, sp = false)
     end
     W = VectorizationBase.pick_vector_width(M, T)
     msym = gensym(:m)
-    logdiag_quote = if Mp1 % W == 1
     # If the remainder is 1, we can save a loop iteration by simply assigning zero to the first element
     # (lkjsym[1] == 1, so its log is 0)
+    logdiag_quote = if Mp1 % W == 1
         quote
             $lkjsym[$(1 + lkj_length_triangle)] = zero($T)
-            @simd ivdep for $msym ∈ 1:$M
+            LoopVectorization.@vvectorize_unsafe $T for $msym ∈ 1:$M
                 $lkjsym[$msym + $(1+lkj_length_triangle)] = SLEEFPirates.log($lkjsym[$msym+1])
             end
         end
     else
         quote
-            @simd ivdep for $msym ∈ 1:$(PaddedMatrices.calc_padding(Mp1, T))
+            LoopVectorization.@vvectorize_unsafe $T for $msym ∈ 1:$(PaddedMatrices.calc_padding(Mp1, T))
                 $lkjsym[$msym + $lkj_length_triangle] = SLEEFPirates.log($lkjsym[$msym])
             end
         end
     end
-    push!(q.args, logdiag_quote)
+    push!(q.args, macroexpand(LoopVectorization, logdiag_quote))
     ∂logdetsym = gensym(:∂logdet)
     bin2M = binomial2(M+1)
     if sp
@@ -600,8 +603,9 @@ end
 
 
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{<: AbstractCorrCholesky{M,T}},
-    partial::Bool = false, m::Module = DistributionParameters, sp::Nothing = nothing,
+    first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol,
+    ::Type{<: AbstractCorrCholesky{M,T}}, partial::Bool = false,
+    m::Module = DistributionParameters, sp::Nothing = nothing,
     logjac::Bool = true, exportparam::Bool = false
 ) where {M,T}
     θ = Symbol("##θparameter##")
@@ -680,8 +684,9 @@ function load_parameter!(
     nothing
 end
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{<: AbstractCorrCholesky{M,T}},
-    partial::Bool, m::Module, sp::Symbol, logjac::Bool = true, exportparam::Bool = false
+    first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol,
+    ::Type{<: AbstractCorrCholesky{M,T}}, partial::Bool,
+    m::Module, sp::Symbol, logjac::Bool = true, exportparam::Bool = false
 ) where {M,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
@@ -765,9 +770,10 @@ function load_parameter!(
 end
 
 function load_parameter!(
-    first_pass, second_pass, out, ::Type{<: AbstractCorrCholesky{M}},
-    partial::Bool = false, m::Module = DistributionParameters,
-    sp::Union{Symbol,Nothing} = nothing, logjac::Bool = true, exportparam::Bool = false
+    first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol,
+    ::Type{<: AbstractCorrCholesky{M}}, partial::Bool = false,
+    m::Module = DistributionParameters, sp::Union{Symbol,Nothing} = nothing,
+    logjac::Bool = true, exportparam::Bool = false
 ) where {M}
     load_parameter!(first_pass, second_pass, out, CorrCholesky{M,Float64}, partial, m, sp, logjac, exportparam)
 end

@@ -109,7 +109,7 @@ function load_transformations!(
     elseif islowerbounded(b)
         logout = gensym(Symbol(:log_, out))
         if scalar
-            outdef = (b.lb == zero(T)) ? :(RealFloat{$(Bounds(zero(T),typemax(T))),$T,$T}(Base.exp($logout),$logout)) : :(exp($logout) + $(T(b.lb)))
+            outdef = ((b.lb == zero(T)) && !exportparam ) ? :(RealFloat{$(Bounds(zero(T),typemax(T))),$T,$T}(Base.exp($logout),$logout)) : :(exp($logout) + $(T(b.lb)))
             load_expr = quote
                 $logout = $m.VectorizationBase.load($θ)
                 $out = $outdef
@@ -156,7 +156,7 @@ function load_transformations!(
         end
     elseif isupperbounded(b)
         logout = gensym(Symbol(:log_, out))
-        outdef = (b.ub == zero(T)) ? :(- exp($logout)) : :($(T(b.ub)) - exp($logout))
+        outdef = ((b.ub == zero(T)) && !exportparam) ? :(- exp($logout)) : :($(T(b.ub)) - exp($logout))
         if scalar
             load_expr = quote
                 $logout = $m.VectorizationBase.load($θ)
@@ -306,6 +306,9 @@ function load_transformations!(
         else
             push!(fp, :($seedout = $m.PtrArray{$(Tuple{shape...}),$T,$N,$(Tuple{X...}),$M,true}(pointer($∂θ))))
         end
+    end
+    if exportparam && scalar
+        push!(fp, :($m.VectorizationBase.store!(pointer($sptr, $T), $out); sptr += $(sizeof(T))))
     end
     push!(fp, :($θ += $M))
     partial && push!(fp, :($∂θ += $M))
