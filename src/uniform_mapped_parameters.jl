@@ -89,14 +89,14 @@ end
 @inline Base.sqrt(x::RealFloat) = Base.FastMath.sqrt_fast(x.r)
 
 @inline Base.convert(::Type{T}, x::RealFloat{B,T}) where {B,T<:Real} = x.r
-@inline Base.:+(x::RealFloat, y) = Base.FastMath.add_fast(x.r, y)
-@inline Base.:+(x, y::RealFloat) = Base.FastMath.add_fast(x, y.r)
+@inline Base.:+(x::RealFloat, y::Number) = Base.FastMath.add_fast(x.r, y)
+@inline Base.:+(x::Number, y::RealFloat) = Base.FastMath.add_fast(x, y.r)
 @inline Base.:+(x::RealFloat, y::RealFloat) = Base.FastMath.add_fast(x.r, y.r)
-@inline Base.:-(x::RealFloat, y) = Base.FastMath.sub_fast(x.r, y)
-@inline Base.:-(x, y::RealFloat) = Base.FastMath.sub_fast(x, y.r)
+@inline Base.:-(x::RealFloat, y::Number) = Base.FastMath.sub_fast(x.r, y)
+@inline Base.:-(x::Number, y::RealFloat) = Base.FastMath.sub_fast(x, y.r)
 @inline Base.:-(x::RealFloat, y::RealFloat) = Base.FastMath.sub_fast(x.r, y.r)
-@inline Base.:*(x::RealFloat, y) = Base.FastMath.mul_fast(x.r, y)
-@inline Base.:*(x, y::RealFloat) = Base.FastMath.mul_fast(x, y.r)
+@inline Base.:*(x::RealFloat, y::Number) = Base.FastMath.mul_fast(x.r, y)
+@inline Base.:*(x::Number, y::RealFloat) = Base.FastMath.mul_fast(x, y.r)
 @inline Base.:*(x::RealFloat, y::RealFloat) = Base.FastMath.mul_fast(x.r, y.r)
 @inline function Base.:*(x::RealFloat{B,T,T}, y::RealFloat{B,T,T}) where {B,T}
     if B === Bounds(zero(T),typemax(T))
