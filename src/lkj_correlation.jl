@@ -779,7 +779,7 @@ function load_parameter!(
 end
 
 
-function parameter_names(::Type{<: AbstractCorrCholesky{M}}, s::Symbol) where {M}
+function parameter_names(::Type{<:StructuredMatrices.AbstractLowerTriangularMatrix{M}}, s::Symbol) where {M}
     ss = strip_hashtags(s)
     names = Vector{String}(undef, binomial2(M+1))
     for m ∈ 1:M
@@ -792,6 +792,7 @@ function parameter_names(::Type{<: AbstractCorrCholesky{M}}, s::Symbol) where {M
     end
     names::Vector{String}
 end
+parameter_names(x::LT) where {LT <: StructuredMatrices.AbstractLowerTriangularMatrix} = param_names(LT)
 
 @generated function LinearAlgebra.mul!(
     σL::AbstractCovarCholesky{M,T,MTV},

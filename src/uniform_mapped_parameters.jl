@@ -168,7 +168,32 @@ parameter_names(::Type{<:RealFloat}, s::Symbol) = [strip_hashtags(s)]
         names
     end
 end
+function parameter_names(A::AbstractArray{N}, s::Symbol) where {N}
+    names = Array{String}(undef, size(A))
+    ss = strip_hashtags(s)*"["
+    for i ∈ CartesianIndices(A)
+        ssm = ss * string(i[1])
+        for j in 2:N
+            ssm *= "," * string(i[j])
+        end
+        names[i] = ssm * "]"
+    end
+    vec(names)
+end
 
+@generated function parameter_names(nt::NT) where {NT <: NamedTuple}
+    P = first(NT.parameters)
+    p₁ = first(P)
+    q = quote
+        names = parameter_names(nt.$p₁, $(QuoteNode(p₁)))
+    end
+    for i ∈ 2:length(P)
+        pᵢ = P[i]
+        push!(q.args, :(append!(names, parameter_names(nt.$pᵢ, $(QuoteNode(pᵢ))))))
+    end
+    push!(q.args, :names)
+    q
+end
 
 function load_parameter!(
     first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol, ::Type{RealFloat}, partial::Bool = false,

@@ -128,7 +128,7 @@ function load_transformations!(
                     $loopbody
                 end
             end
-            if b.lb == zero(T)
+            if b.lb == zero(T) && !exportparam && sptr !== nothing
                 outinit = quote
                     $out = $m.RealArray{$(Tuple{shape...}),$(Bounds(zero(T),typemax(T))),$T,$N,$(Tuple{X...}),$M,Ptr{$T}}(pointer($sptr, $T),pointer($θ))
                     $sptr += $(maybe_align(sizeof(T)*M))
