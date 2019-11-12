@@ -95,6 +95,8 @@ end
 end
 
 
+@generated PaddedMatrices.type_length(::Type{<: AbstractCorrCholesky{M}}) where {M} = StructuredMatrices.binomial2(M+1)
+@generated PaddedMatrices.type_length(::AbstractCorrCholesky{M}) where {M} = StructuredMatrices.binomial2(M+1)
 @generated PaddedMatrices.param_type_length(::Type{<: AbstractCorrCholesky{M}}) where {M} = StructuredMatrices.binomial2(M)
 @generated PaddedMatrices.param_type_length(::AbstractCorrCholesky{M}) where {M} = StructuredMatrices.binomial2(M)
 

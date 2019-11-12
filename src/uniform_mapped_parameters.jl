@@ -88,7 +88,7 @@ end
 @inline SpecialFunctions.logabsbeta(x::RealFloat) = SpecialFunctions.logabsbeta(x.r)
 @inline Base.sqrt(x::RealFloat) = Base.FastMath.sqrt_fast(x.r)
 
-@inline Base.convert(::Type{T}, x::RealFloat{B,T}) where {B,T} = x.r
+@inline Base.convert(::Type{T}, x::RealFloat{B,T}) where {B,T<:Real} = x.r
 @inline Base.:+(x::RealFloat, y) = Base.FastMath.add_fast(x.r, y)
 @inline Base.:+(x, y::RealFloat) = Base.FastMath.add_fast(x, y.r)
 @inline Base.:+(x::RealFloat, y::RealFloat) = Base.FastMath.add_fast(x.r, y.r)
@@ -121,6 +121,7 @@ end
         Base.FastMath.div_fast(x.r, y.r)
     end
 end
+@inline SIMDPirates.vinv(x::RealFloat) = Base.FastMath.inv_fast(x.r)
 @inline Base.inv(x::RealFloat) = Base.FastMath.inv_fast(x.r)
 @inline function Base.inv(x::RealFloat{Bounds(0.0,Inf),Float64,Float64})
     if B === Bounds(zero(T),typemax(T))
@@ -133,7 +134,7 @@ end
     end
     
 end
-
+@inline Base.promote_rule(::Type{T}, ::Type{<:RealFloat{<:Any,T}}) where {T<:Real} = T
 
 strip_hashtags(s::String) = s[1+last(findlast("#",s)):end]
 strip_hashtags(s::Symbol) = strip_hashtags(string(s))
