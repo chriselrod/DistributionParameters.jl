@@ -98,6 +98,12 @@ end
 @inline Base.:*(x::RealFloat, y::Number) = Base.FastMath.mul_fast(x.r, y)
 @inline Base.:*(x::Number, y::RealFloat) = Base.FastMath.mul_fast(x, y.r)
 @inline Base.:*(x::RealFloat, y::RealFloat) = Base.FastMath.mul_fast(x.r, y.r)
+@inline Base.:+(x::RealFloat, y::AbstractArray) = x.r + y
+@inline Base.:+(x::AbstractArray, y::RealFloat) = x + y.r
+@inline Base.:-(x::RealFloat, y::AbstractArray) = x.r - y
+@inline Base.:-(x::AbstractArray, y::RealFloat) = x - y.r
+@inline Base.:*(x::RealFloat, y::AbstractArray) = x.r * y
+@inline Base.:*(x::AbstractArray, y::RealFloat) = x * y.r
 @inline function Base.:*(x::RealFloat{B,T,T}, y::RealFloat{B,T,T}) where {B,T}
     if B === Bounds(zero(T),typemax(T))
         RealFloat{B,T,T}(
