@@ -359,6 +359,7 @@ function constrain_lkj_factor_quote(
         push!(q.args, macroexpand(LoopVectorization, logdiag_quote))
     end
     quote
+        $(Expr(:meta,:inline))
         @fastmath @inbounds begin
             $q
         end
@@ -384,7 +385,7 @@ This function also generates code to calculate the gradient with respect to the 
 as well as the full Jacobian of the constraining transformation.
 """
 function constrain_lkj_factor_jac_quote(
-        Mp1::Int, L::Int, LL::Int, ::Type{T}, lkjsym::Symbol, zsym::Symbol
+    Mp1::Int, L::Int, LL::Int, ::Type{T}, lkjsym::Symbol, ∂logdetsym::Symbol, jacobiansym::Symbol, zsym::Symbol
 ) where {T}
     # @show L
     M = Mp1 - 1 
@@ -471,14 +472,8 @@ function constrain_lkj_factor_jac_quote(
     logdetsym = gensym(:logdet)
     add_calc_logdet_expr!(q, M, T, logdetsym)
     lkj_length_triangle = VectorizationBase.align(binomial2(Mp1+1),T)
-    lkj_length = lkj_length_triangle + VectorizationBase.align(Mp1, T)
+    #lkj_length = lkj_length_triangle + VectorizationBase.align(Mp1, T)
     lkjsym = gensym(:CorrCholesky)
-    if sp
-        push!(q.args, :($lkjsym = PtrCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T))))
-        push!(q.args, :(sp += $(VectorizationBase.align(sizeof(T)*lkj_length))))
-    else
-        push!(q.args, :($lkjsym = CorrCholesky{$Mp1,$T,$lkj_length}(undef)))
-    end
     i = 0
     for mc ∈ 1:Mp1
         i += 1
@@ -491,11 +486,9 @@ function constrain_lkj_factor_jac_quote(
         end
     end
     W = VectorizationBase.pick_vector_width(M, T)
-    msym = gensym(:m)
-    # If the remainder is 1, we can save a loop iteration by simply assigning zero to the first element
-    # (lkjsym[1] == 1, so its log is 0)
+    msym = gensym(:m)   
     logdiag_quote = if Mp1 % W == 1
-        quote
+        quote  # If the remainder is 1, we can save a loop iteration by simply assigning zero to the first element
             $lkjsym[$(1 + lkj_length_triangle)] = zero($T)
             LoopVectorization.@vvectorize_unsafe $T for $msym ∈ 1:$M
                 $lkjsym[$msym + $(1+lkj_length_triangle)] = SLEEFPirates.log($lkjsym[$msym+1])
@@ -509,14 +502,7 @@ function constrain_lkj_factor_jac_quote(
         end
     end
     push!(q.args, macroexpand(LoopVectorization, logdiag_quote))
-    ∂logdetsym = gensym(:∂logdet)
     bin2M = binomial2(Mp1)
-    if sp
-        push!(q.args, :($∂logdetsym = PtrVector{$bin2M,$T,$bin2M}(pointer(sp, $T))))
-        push!(q.args, :(sp += $(VectorizationBase.align(sizeof(T)*bin2M))))
-    else
-        push!(q.args, :($∂logdetsym = FixedSizeVector{$bin2M,$T,$bin2M}(undef)))
-    end
     i = 1
     for mc ∈ 1:M
         push!(q.args, :($∂logdetsym[$i] = zero($T)))
@@ -526,14 +512,7 @@ function constrain_lkj_factor_jac_quote(
             i += 1
         end
     end
-    jacobiansym = gensym(:jacobian)
-    Ladj = DistributionParameters.lkj_adjoint_length(M)
-    if sp
-        push!(q.args, :($jacobiansym = PtrCholeskyConstraintAdjoint{$Mp1,$T,$Ladj}(pointer(sp,$T))))
-        push!(q.args, :(sp += $(VectorizationBase.align(Ladj*sizeof(T)))))
-    else
-        push!(q.args, :($jacobiansym = CholeskyConstraintAdjoint{$Mp1,$T,$Ladj}(undef)))
-    end
+    # Ladj = DistributionParameters.lkj_adjoint_length(M)
     # diagonal block of lkj
     i = 1
     for mp ∈ 1:M
@@ -558,6 +537,7 @@ function constrain_lkj_factor_jac_quote(
 # 4. Jacobian of the constraining transformation
 # constrain_q, constrained_expr, logdetsym, logdetgrad, jacobian
     quote
+        $(Expr(:meta,:inline))
         @fastmath @inbounds begin
             $q
         end
@@ -568,7 +548,7 @@ end
 @generated function lkj_constrain!(
     lkjcorrchol::StructuredMatrices.AbstractMutableLowerTriangularMatrix{Mp1,T,LL},
     zlkj::PaddedMatrices.AbstractFixedSizeVector{L,T}
-) where {T,L,Mp1}
+) where {T,L,Mp1,LL}
     constrain_lkj_factor_quote(Mp1, L, LL, T, :lkjcorrchol, :zlkj)
 end
 @generated function ∂lkj_constrain!(
@@ -576,13 +556,8 @@ end
     lkjgrad::AbstractMutableFixedSizeVector{L,T},
     lkjjacobian::CholeskyConstraintAdjoint{Mp1,T,Ladj},
     zlkj::PaddedMatrices.AbstractFixedSizeVector{L,T}
-) where {L,T}
-    lkjconstrain_q, lkjconstrained_expr, lkjlogdetsym, lkjlogdetgrad, lkjjacobian = 
-    quote
-        $lkjconstrain_q
-        $lkjconstrained_expr, $lkjlogdetsym, $lkjlogdetgrad, $lkjjacobian
-    end
-    constrain_lkj_factor_jac_quote(Mp1, L, LL, T, :lkjcorrchol, :zlkj)
+) where {L,T,Mp1,LL,Ladj}
+    constrain_lkj_factor_jac_quote(Mp1, L, LL, T, :lkjcorrchol, :lkjgrad, :lkjjacobian, :zlkj)
 end
 
 
@@ -616,99 +591,17 @@ end
 #     end
 # end
 
-
-
-function load_parameter!(
-    first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol,
-    ::Type{<: AbstractCorrCholesky{M,T}}, partial::Bool = false,
-    m::Module = DistributionParameters, sp::Nothing = nothing,
-    logjac::Bool = true, exportparam::Bool = false
-) where {M,T}
-    θ = Symbol("##θparameter##")
-    ∂θ = Symbol("##∂θparameter##")
-    ninvlogitout = gensym(out)
-    invlogitout = gensym(out)
-    ∂invlogitout = gensym(out)
-
-    W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
-    sumθᵢ = gensym(:sumθᵢ)
-
-    N = (M * (M-1)) >>> 1
-
-    Wm1 = W - 1
-    rem = N & Wm1
-    L = (N + Wm1) & ~Wm1
-    log_jac = gensym(:log_jac)
-    zsym = gensym(:z) # z ∈ (-1, 1)
-    q = quote
-        $zsym = FixedSizeVector{$N,$T}(undef)
-        # $log_jac = DistributionParameters.SIMDPirates.vbroadcast(Vec{$W,$T}, zero($T))
-        # $log_jac = zero($T)
-    end
-    if partial
-        push!(q.args, :($invlogitout = FixedSizeVector{$L,$T}(undef)))
-        push!(q.args, :($∂invlogitout = FixedSizeVector{$L,$T}(undef)))
-    end
-    i = gensym(:i)
-    loop_body = quote
-        $ninvlogitout = one($T) / (one($T) + $m.SLEEFPirates.exp($θ[$i]))
-    end
-    if partial
-        push!(loop_body.args, :($invlogitout[$i] = one($T) - $ninvlogitout))
-        push!(loop_body.args, :($∂invlogitout[$i] = $ninvlogitout * $invlogitout[$i]))
-        push!(loop_body.args, :($zsym[$i] = $m.SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
-        logjac && push!(loop_body.args, :(target = $m.vadd(target, $m.SLEEFPirates.log($∂invlogitout[$i]))))
-    else
-        push!(loop_body.args, :($invlogitout = one($T) - $ninvlogitout))
-        push!(loop_body.args, :($∂invlogitout = $ninvlogitout * $invlogitout))
-        push!(loop_body.args, :($zsym[$i] = $m.SIMDPirates.vmuladd($(T(-2)), $ninvlogitout, one($T))))
-        logjac && push!(loop_body.args, :(target = $m.vadd(target, $m.SLEEFPirates.log($∂invlogitout))))
-    end
-
-    push!(q.args, macroexpand(m, quote
-        LoopVectorization.@vvectorize_unsafe $T $((m)) for $i ∈ 1:$N
-            $loop_body
-        end
-    end))
-    lkjlogdetsym = gensym(:lkjlogdetsym)
-    if partial
-        seedlkj = gensym(:seedlkj)
-        lkjlogdetgradsym = gensym(:lkjlogdetgrad)
-        lkjjacobiansym = gensym(:lkjjacobian)
-        spq = quote
-            $m.mul!($seedlkj, $(adj(out)), $lkjjacobiansym)
-            LoopVectorization.@vvectorize_unsafe $T $((m)) for $i ∈ 1:$N
-                $seedlkj[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
-            end
-        end
-        push!(second_pass, macroexpand(m, spq))
-        push!(q.args, quote
-              $out, $lkjlogdetsym, $lkjlogdetgradsym, $lkjjacobiansym = $m.DistributionParameters.∂lkj_constrain($zsym)
-              $θ += $N
-              $seedlkj = $m.DistributionParameters.StructuredMatrices.PtrLowerTriangularMatrix{$(M-1),$T,$N}(pointer($∂θ))
-              $(adj(out)) = $m.alloc_adjoint($out)
-              $∂θ += $N
-        end)
-    else
-        push!(q.args, quote
-            $out, $lkjlogdetsym = $m.DistributionParameters.lkj_constrain($zsym)
-            $θ += $N
-        end)
-    end
-    logjac && push!(q.args, :(target = $m.vadd(target, $log_jac + $lkjlogdetsym)))
-    push!(first_pass, q)
-    nothing
-end
 function load_parameter!(
     first_pass::Vector{Any}, second_pass::Vector{Any}, out::Symbol,
     ::Type{<: AbstractCorrCholesky{M,T}}, partial::Bool,
-    m::Module, sp::Symbol, logjac::Bool = true, exportparam::Bool = false
+    m::Module, sp::Union{Symbol,Nothing}, logjac::Bool = true, exportparam::Bool = false
 ) where {M,T}
     θ = Symbol("##θparameter##")
     ∂θ = Symbol("##∂θparameter##")
     ninvlogitout = gensym(out)
     invlogitout = gensym(out)
     ∂invlogitout = gensym(out)
+    use_sptr = sp isa Symbol
     W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
     sumθᵢ = gensym(:sumθᵢ)
     N = (M * (M-1)) >>> 1
@@ -720,18 +613,25 @@ function load_parameter!(
     if partial
         zsymoffset += VectorizationBase.align(max(2L,binomial2(M-1) + lkj_adjoint_length(M-1))*sizeof(T))
     end
+    limitlife = use_sptr && !exportparam
     # zsym will be discarded, so we allocate it behind all the data we actually return.
-    q = quote
-        $zsym = $m.PtrVector{$N,$T}(pointer($sp + $zsymoffset,$T))
-    end
-    if partial
-        push!(q.args, :(($sp,$invlogitout) = $m.PtrVector{$L,$T}($sp)))
-        push!(q.args, :(($sp,$∂invlogitout) = $m.PtrVector{$L,$T}($sp)))
+    if use_sptr
+        push!(first_pass, :( $zsym = $m.PtrVector{$N,$T}(pointer($sp + $zsymoffset,$T)) ))
+        limitlife && push!(first_pass, :($m.lifetime_start!($zsym)))
+        if partial
+            push!(first_pass, :(($sp,$invlogitout) = $m.PtrVector{$L,$T}($sp)))
+            push!(first_pass, :(($sp,$∂invlogitout) = $m.PtrVector{$L,$T}($sp)))
+            limitlife && push!(first_pass, :($m.lifetime_start!($invlogitout); $m.lifetime_start!($∂invlogitout)))
+        end
+    else
+        push!(first_pass, :( $zsym = $m.PtrVector{$N,$T}(SIMDPirates.alloca(Val{$N}(),$T)) ))
+        if partial
+            push!(first_pass, :($invlogitout = $m.PtrVector{$L,$T}($m.alloca(Val{$L}(),$T))))
+            push!(first_pass, :($∂invlogitout = $m.PtrVector{$L,$T}($m.alloca(Val{$L}(),$T))))
+        end
     end
     i = gensym(:i)
-    loop_body = quote
-        $ninvlogitout = one($T) / (one($T) + $m.SLEEFPirates.exp($θ[$i]))
-    end
+    loop_body = quote $ninvlogitout = one($T) / (one($T) + $m.SLEEFPirates.exp($θ[$i])) end
     if partial
         push!(loop_body.args, :($invlogitout[$i] = one($T) - $ninvlogitout))
         push!(loop_body.args, :($∂invlogitout[$i] = $ninvlogitout * $invlogitout[$i]))
@@ -748,40 +648,60 @@ function load_parameter!(
             $loop_body
         end
     end
-    push!(q.args, macroexpand(m, vloop_quote))
+    push!(first_pass, macroexpand(m, vloop_quote))
     lkjlogdetsym = gensym(:lkjlogdetsym)
     if partial
         seedlkj = gensym(:seedlkj)
         lkjlogdetgradsym = gensym(:lkjlogdetgrad)
         lkjjacobiansym = gensym(:lkjjacobian)
-        seedlkjgensym = gensym(seedlkj)
-        push!(second_pass, quote
-              # ($sp, $seedlkjgensym) = $sp * $(adj(out)) * $lkjjacobiansym
-              # $seedlkj = $seedlkjgensym.parent
-              $m.mul!($seedlkj, $(adj(out)), $lkjjacobiansym)
-              $(macroexpand(m, quote
-                            LoopVectorization.@vvectorize_unsafe $T $((m)) for $i ∈ 1:$N
-                            $seedlkj[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i] + $lkjlogdetgradsym[$i]) * ($∂invlogitout)[$i] )
-                            end
-                            end))
-              # $∂θ += $N
-        end)
-        push!(q.args, quote
-            ($sp, ($out, $lkjlogdetsym, $lkjlogdetgradsym, $lkjjacobiansym)) = $m.DistributionParameters.∂lkj_constrain($sp, $zsym)
-              $θ += $N
-              $seedlkj = $m.DistributionParameters.StructuredMatrices.PtrLowerTriangularMatrix{$(M-1),$T,$N}(pointer($∂θ))
-              $(adj(out)) = $m.alloc_adjoint($out)
-              # ($sp, $(adj(out))) = $m.alloc_adjoint($sp, $out)
-              $∂θ += $N
-              end)
+        adjout = adj(out)
+        push!(second_pass, :($m.muladd!($seedlkj, $adjout, $lkjjacobiansym)))
+        loopq = quote
+            LoopVectorization.@vvectorize_unsafe $T $((m)) for $i ∈ 1:$N
+                $seedlkj[$i] = $(one(T)) - $(T(2)) * ( ($invlogitout)[$i] - (($seedlkj)[$i]) * ($∂invlogitout)[$i] )
+            end
+        end
+        push!(second_pass, macroexpand(m, loopq))
+        if limitlife
+            for d ∈ (invlogitout, ∂invlogitout, adjout, out, lkjjacobiansym)
+                push!(second_pass, :($m.lifetime_end!($d)))
+            end
+        end
+        lkj_length_triangle = VectorizationBase.align(binomial2(M+1),T)
+        lkj_length = lkj_length_triangle + VectorizationBase.align(M, T)
+        Ladj = DistributionParameters.lkj_adjoint_length(M - 1)
+        if use_sptr #out
+            push!(first_pass, :($lkjjacobiansym = PtrCholeskyConstraintAdjoint{$M,$T,$Ladj}(pointer(sp,$T))))
+            push!(first_pass, :(sp += $(VectorizationBase.align(Ladj*sizeof(T)))))
+            push!(first_pass, :($out = PtrCorrCholesky{$M,$T,$lkj_length}(pointer(sp,$T))))
+            # push!(first_pass, Expr(:(=), out, :(PtrCorrCholesky{$M,$T,$lkj_length}(pointer(sp,$T)))))
+            push!(first_pass, :(sp += $(VectorizationBase.align(sizeof(T)*lkj_length))))
+        else
+            push!(first_pass, :($lkjjacobiansym = CholeskyConstraintAdjoint{$M,$T,$Ladj}(undef)))
+            push!(first_pass, :($out = CorrCholesky{$M,$T,$lkj_length}(undef)))
+            # push!(first_pass, Expr(:(=), out, :(CorrCholesky{$M,$T,$lkj_length}(undef))))
+        end
+        push!(first_pass, :($seedlkj = $m.DistributionParameters.StructuredMatrices.PtrLowerTriangularMatrix{$(M-1),$T,$N}(pointer($∂θ))))
+        push!(first_pass, :($lkjlogdetsym = $m.DistributionParameters.∂lkj_constrain!($out, $seedlkj, $lkjjacobiansym, $zsym)))
+        push!(first_pass, :($adjout = $m.alloc_adjoint($out)))
+        push!(first_pass, :($m.lifetime_start!($adjout)))
+        push!(first_pass, :($θ += $N))
+        push!(first_pass, :($∂θ += $N))
     else
-        push!(q.args, quote
-            ($sp, ($out, $lkjlogdetsym)) = $m.DistributionParameters.lkj_constrain($sp, $zsym, Val{$(!exportparam)}())
-            $θ += $N
-        end)
+        allocq = if use_sptr
+            push!( first_pass, :( $out = PtrCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T)) ) )
+            # push!( first_pass, Expr(:(=), out, :(PtrCorrCholesky{$Mp1,$T,$lkj_length}(pointer(sp,$T)) ) ))
+            push!( first_pass, :( sp += $(VectorizationBase.align(sizeof(T)*lkj_length)) ))
+        else
+            push!(first_pass, :( $out = CorrCholesky{$Mp1,$T,$lkj_length}(undef) ) )
+            # push!(first_pass, Expr(:(=), out, :(CorrCholesky{$Mp1,$T,$lkj_length}(undef) ) ))
+        end
+        push!(first_pass, :($lkjlogdetsym = $m.DistributionParameters.lkj_constrain!($out, $zsym, Val{$(!exportparam)}())))
+        push!(first_pass, :($θ += $N))
+        limitlife && push!(second_pass, :($m.lifetime_end!($out)))
     end
-    logjac && push!(q.args, :( target = $m.vadd(target, $lkjlogdetsym)))
-    push!(first_pass, q)
+    limitlife && push!(first_pass, :($m.lifetime_end!($zsym)))
+    logjac && push!(first_pass, :(target = $m.vadd(target, $lkjlogdetsym)))
     nothing
 end
 

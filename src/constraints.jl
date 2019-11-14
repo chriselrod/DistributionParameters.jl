@@ -148,7 +148,8 @@ function load_transformations!(
                 $(macroexpand(m, loop_quote))
             end
         end
-        (exportparam || scalar) || push!(fp, load_expr)
+        push!(fp, load_expr)
+        # (exportparam || scalar) || push!(fp, load_expr)
         if partial
             if scalar
                 # push!(sp, :($m.VectorizationBase.store!($∂θ, muladd($adjout, $out, one($T)))))
@@ -190,7 +191,7 @@ function load_transformations!(
                 $(macroexpand(m, loop_quote))
             end
         end
-        push!(fp, loop_expr)
+        push!(fp, load_expr)
         if partial
             if scalar
                 push!(sp, :($m.VectorizationBase.store!($adjout, $m.SIMDPirates.vfnmadd($m.VectorizationBase.load($adjout), $out, one($T)))))
