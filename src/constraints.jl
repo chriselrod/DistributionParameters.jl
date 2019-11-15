@@ -330,7 +330,7 @@ function load_transformations!(
         end
     end
     if exportparam && scalar
-        push!(fp, :($m.VectorizationBase.store!(pointer($sptr, $T), $out); $sptr += $(sizeof(T))))
+        push!(fp, :($m.VectorizationBase.store!(pointer($sptr, $T), convert($T, $out)); $sptr += $(sizeof(T))))
     end
     push!(fp, :($θ += $M))
     partial && push!(fp, :($∂θ += $M))
