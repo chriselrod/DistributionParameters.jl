@@ -97,14 +97,16 @@ end
 @inline Base.:-(x::RealFloat, y::RealFloat) = Base.FastMath.sub_fast(x.r, y.r)
 @inline Base.:*(x::RealFloat, y::Number) = Base.FastMath.mul_fast(x.r, y)
 @inline Base.:*(x::Number, y::RealFloat) = Base.FastMath.mul_fast(x, y.r)
-@inline Base.:*(x::RealFloat, y::RealFloat) = Base.FastMath.mul_fast(x.r, y.r)
+# @inline Base.:*(x::RealFloat, y::RealFloat) = Base.FastMath.mul_fast(x.r, y.r)
 @inline Base.:+(x::RealFloat, y::AbstractArray) = x.r + y
 @inline Base.:+(x::AbstractArray, y::RealFloat) = x + y.r
 @inline Base.:-(x::RealFloat, y::AbstractArray) = x.r - y
 @inline Base.:-(x::AbstractArray, y::RealFloat) = x - y.r
 @inline Base.:*(x::RealFloat, y::AbstractArray) = x.r * y
 @inline Base.:*(x::AbstractArray, y::RealFloat) = x * y.r
-@inline function Base.:*(x::RealFloat{B,T,T}, y::RealFloat{B,T,T}) where {B,T}
+@inline Base.zero(::RealFloat{<:Any,T}) where {T} = zero(T)
+@inline Base.one(::RealFloat{<:Any,T}) where {T} = one(T)
+@inline function Base.:*(x::RealFloat{B,T,T}, y::RealFloat{B,T,T}) where {B,T<:Real}
     if B === Bounds(zero(T),typemax(T))
         RealFloat{B,T,T}(
             Base.FastMath.mul_fast(x.r, y.r),
@@ -141,6 +143,36 @@ end
     
 end
 @inline Base.promote_rule(::Type{T}, ::Type{<:RealFloat{<:Any,T}}) where {T<:Real} = T
+
+@generated function ReverseDiffExpressionsBase.RESERVED_INCREMENT_SEED_RESERVED!(
+    C::AbstractMutableFixedSizeArray{S,T,N,X,L},
+    A::UniformScaling{<:RealFloat},
+    B::AbstractFixedSizeArray{S,T,N,X,L}
+) where {S,T,N,X,L}
+    quote
+        $(Expr(:meta,:inline))
+        a = A.λ.r
+        @vvectorize $T for l ∈ 1:$L
+            C[l] += a * B[l]
+        end
+        nothing
+    end
+end
+@generated function ReverseDiffExpressionsBase.RESERVED_INCREMENT_SEED_RESERVED!(
+    C::PaddedMatrices.UninitializedArray{S,T,N,X,L},
+    A::UniformScaling{<:RealFloat},
+    B::AbstractFixedSizeArray{S,T,N,X,L}
+) where {S,T,N,X,L}
+    quote
+        $(Expr(:meta,:inline))
+        a = A.λ.r
+        @vvectorize $T for l ∈ 1:$L
+            C[l] = a * B[l]
+        end
+        nothing
+    end
+end
+
 
 strip_hashtags(s::String) = s[1+last(findlast("#",s)):end]
 strip_hashtags(s::Symbol) = strip_hashtags(string(s))

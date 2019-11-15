@@ -55,7 +55,7 @@ M == param_length == 0 => scalar
 """
 function load_transformations!(
     fp, sp, b::Bounds{T}, out, shape::Vector{Int},
-    partial::Bool, logjac::Bool, sptr,
+    partial::Bool, logjac::Bool, sptr::Union{Symbol,Nothing},
     m::Module = DistributionParameters,
     θ = Symbol("##θparameter##"), ∂θ = Symbol("##∂θparameter##"),
     exportparam::Bool = false
@@ -330,7 +330,7 @@ function load_transformations!(
         end
     end
     if exportparam && scalar
-        push!(fp, :($m.VectorizationBase.store!(pointer($sptr, $T), $out); sptr += $(sizeof(T))))
+        push!(fp, :($m.VectorizationBase.store!(pointer($sptr, $T), $out); $sptr += $(sizeof(T))))
     end
     push!(fp, :($θ += $M))
     partial && push!(fp, :($∂θ += $M))

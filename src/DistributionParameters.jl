@@ -5,7 +5,8 @@ using PaddedMatrices, StructuredMatrices, LinearAlgebra,
     StackPointers, ReverseDiffExpressionsBase, SpecialFunctions
 
 using PaddedMatrices: StackPointer, DynamicPtrMatrix,
-    AbstractMutableFixedSizeVector, AbstractFixedSizeVector
+    AbstractMutableFixedSizeVector, AbstractFixedSizeVector,
+    AbstractMutableFixedSizeArray, AbstractFixedSizeArray
 
 using ReverseDiffExpressionsBase: adj
 
