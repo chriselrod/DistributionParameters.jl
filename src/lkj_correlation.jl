@@ -611,13 +611,15 @@ function load_parameter!(
     limitlife = use_sptr && !exportparam
     # zsym will be discarded, so we allocate it behind all the data we actually return.
     if use_sptr && !exportparam
-        push!(first_pass, :( $zsym = $m.PtrVector{$N,$T}(pointer($sp + $zsymoffset,$T)) ))
-        limitlife && push!(first_pass, :($m.lifetime_start!($zsym)))
         if partial
             push!(first_pass, :(($sp,$invlogitout) = $m.PtrVector{$L,$T}($sp)))
             push!(first_pass, :(($sp,$∂invlogitout) = $m.PtrVector{$L,$T}($sp)))
             limitlife && push!(first_pass, :($m.lifetime_start!($invlogitout); $m.lifetime_start!($∂invlogitout)))
         end
+        # push!(first_pass, :( $zsym = $m.PtrVector{$N,$T}(pointer($sp + $zsymoffset,$T)) ))
+        # push!(first_pass, :( ($sp,$zsym) = $m.PtrVector{$N,$T}($sp)))
+        # limitlife && push!(first_pass, :($m.lifetime_start!($zsym)))
+        push!(first_pass, :( $zsym = $m.PtrVector{$N,$T}(SIMDPirates.alloca(Val{$N}(),$T)) ))
     else
         push!(first_pass, :( $zsym = $m.PtrVector{$N,$T}(SIMDPirates.alloca(Val{$N}(),$T)) ))
         if partial
