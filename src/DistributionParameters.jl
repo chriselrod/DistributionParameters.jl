@@ -54,6 +54,7 @@ _precompile_()
 @def_stackpointer_fallback lkj_constrain ∂lkj_constrain CovarianceMatrix ∂CovarianceMatrix
 function __init__()
     @add_stackpointer_method lkj_constrain ∂lkj_constrain CovarianceMatrix ∂CovarianceMatrix
+    _precompile_()
 end
 
 end # module
