@@ -1,58 +1,13 @@
 
 
 
-#=
-abstract type Constraint end
-struct LowerBound{LB} <: Constraint end
-struct UpperBound{UB} <: Constraint end
-struct Positive <: Constraint end
-struct Unit <: Constraint end
-struct Bounded{LB,UB} <: Constraint end
-=#
 
-
-
-"""
-Using bounds as a parameteric type will force generated functions to recompile.
-However, the expression manipulation functions at least will not have to via
-making all Bounds a single type, and using if/else checks to determine bound type.
-"""
-struct Bounds{T <: Real}
-    lb::T
-    ub::T
-end
-
-Bounds() = Bounds(-Inf,Inf)
-Bounds(lb::Integer, ub::Integer) = Bounds(Float64(lb), Float64(ub))
-Bounds(lb::T, ub::T) where {T<:Union{Float32,Float64}} = Bounds{T}(lb, ub)
-function Bounds(lb::T1, ub::T2) where {T1,T2}
-    T = promote_type(T1,T2)
-    Bounds{T}(T(lb), T(ub))
-end
-
-ismin(x::T) where {T} = ((x == typemin(T)) | (x == -floatmax(T))) # floatmin
-ismax(x::T) where {T} = ((x == typemax(T)) | (x ==  floatmax(T)))
-function isunbounded(b::Bounds{T}) where {T}
-    ismin(b.lb) & ismax(b.ub)
-end
-function islowerbounded(b::Bounds{T}) where {T}
-    (!ismin(b.lb)) & ismax(b.ub)
-end
-function isupperbounded(b::Bounds{T}) where {T}
-    ismin(b.lb) & (!ismax(b.ub))
-end
-function isbounded(b::Bounds{T}) where {T}
-    (!ismin(b.lb)) & (!ismax(b.ub))
-end
-
-
-
-"""
-Function applies the transformations for loading a parameter to
-fp = (quote end).args
-sp = (quote end).args
-M == param_length == 0 => scalar
-"""
+# """
+# Function applies the transformations for loading a parameter to
+# fp = (quote end).args
+# sp = (quote end).args
+# M == param_length == 0 => scalar
+# """
 function load_transformations!(
     fp, sp, b::Bounds{T}, out, shape::Vector{Int},
     partial::Bool, logjac::Bool, sptr::Union{Symbol,Nothing},

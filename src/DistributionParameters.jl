@@ -1,17 +1,21 @@
 module DistributionParameters
 
-using PaddedMatrices, StructuredMatrices, LinearAlgebra,
+using PaddedMatrices, LinearAlgebra,
     SIMDPirates, SLEEFPirates, LoopVectorization, VectorizationBase,
-    StackPointers, ReverseDiffExpressionsBase, SpecialFunctions
+    StackPointers, ReverseDiffExpressionsBase, SpecialFunctions#, StructuredMatrices
 
-using PaddedMatrices: StackPointer, DynamicPtrMatrix,
-    AbstractMutableFixedSizeVector, AbstractFixedSizeVector,
-    AbstractMutableFixedSizeArray, AbstractFixedSizeArray
+using PaddedMatrices: StackPointer,#, DynamicPtrMatrix,
+    AbstractFixedSizeVector,
+    AbstractFixedSizeMatrix,
+    AbstractFixedSizeArray
 
-using ReverseDiffExpressionsBase: adj
+# using ReverseDiffExpressionsBase: adj
+import ReverseDiffExpressionsBase: constrain!
+import StackPointers: stack_pointer_call
 
 export RealFloat, RealArray, RealVector, RealMatrix, Bounds, MissingDataArray, maybe_missing,
     constrain, CorrCholesky, CovarCholesky, DynamicCovarianceMatrix
+
 
 #using LoopVectorization: @vvectorize
 
@@ -32,29 +36,24 @@ export RealFloat, RealArray, RealVector, RealMatrix, Bounds, MissingDataArray, m
 
 
 
-"""
-Transform a parameter vector to the constrained space.
-"""
-function constrain end
-function constrain! end
 function constrained_length end
 function parameter_names end
 
 include("constraints.jl")
-include("uniform_mapped_parameters.jl")
-include("lkj_correlation.jl")
-include("normal_variates.jl")
-include("missing_data.jl")
-include("precompile.jl")
-_precompile_()
+# include("uniform_mapped_parameters.jl")
+# include("lkj_correlation.jl")
+# include("normal_variates.jl")
+# include("missing_data.jl")
+# include("precompile.jl")
+# _precompile_()
 # include("autoregressive_matrix.jl")
 
 # @support_stack_pointer load_parameter
 
-@def_stackpointer_fallback lkj_constrain ∂lkj_constrain CovarianceMatrix ∂CovarianceMatrix
-function __init__()
-    @add_stackpointer_method lkj_constrain ∂lkj_constrain CovarianceMatrix ∂CovarianceMatrix
-    _precompile_()
-end
+# @def_stackpointer_fallback lkj_constrain ∂lkj_constrain CovarianceMatrix ∂CovarianceMatrix
+# function __init__()
+    # @add_stackpointer_method lkj_constrain ∂lkj_constrain CovarianceMatrix ∂CovarianceMatrix
+    # _precompile_()
+# end
 
 end # module

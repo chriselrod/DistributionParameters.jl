@@ -3,6 +3,15 @@ using Test
 using ForwardDiff, LinearAlgebra, PaddedMatrices, StructuredMatrices, Random, ProbabilityModels,   
         ProbabilityModels, LoopVectorization, VectorizationBase, SLEEFPirates, SIMDPirates
 
+using DistributionParameters: Bounds, RealScalarParameter, RealArrayParameter, LKJCorrCholeskyParameter, SimplexParameter, ParamDescriptionCore, LengthParamDescription
+
+N = 200;
+dv = [LengthParamDescription(rand(0:7), ParamDescriptionCore(Bounds(-Inf,Inf),i,RealArrayParameter)) for i ∈ 1:N];
+dvc = copy(dv);
+DistributionParameters.sort_by_rem!(dvc, 8); dvc;
+po = DistributionParameters.parameter_offsets(dvc);
+sum(iszero.(po .% 4)) / N
+
 @testset "DistributionParameters.jl" begin
     # Write your own tests here.
 

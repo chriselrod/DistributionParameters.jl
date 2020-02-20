@@ -1,21 +1,5 @@
 
 
-abstract type AbstractMissingDataArray{M,B,T,N,A <: AbstractArray{T,N}} end
-"""
-Parameters are:
-M: number Missing
-B: Bounds
-T: DataType
-N: Dimensionality of Array (how many axis?)
-"""
-struct MissingDataArray{M,B,T,N,A} <: AbstractMissingDataArray{M,B,T,N,A}
-    data::A
-    inds::Vector{CartesianIndex{N}}
-end
-struct ThreadedMissingDataArray{M,B,T,N,A} <: AbstractMissingDataArray{M,B,T,N,A}
-    data::Vector{A}
-    inds::Vector{CartesianIndex{N}}
-end
 # Base.CartesianIndices(A::MissingDataArray) = CartesianIndices(A.data)
 
 function parameter_names(::Type{<:AbstractMissingDataArray{M}}, s::Symbol) where {M}
