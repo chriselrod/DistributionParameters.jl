@@ -111,9 +111,9 @@ struct LengthParamDescription
     l::Int
     ind::Int32
     r::Int8
+    LengthParamDescription(l::Int, d) = new(l, d % Int32, (l & (VectorizationBase.REGISTER_SIZE>>>3) ) % Int8)
 end
-LengthParamDescription(l::Int, d) = LengthParamDescription(l, d, zero(Int8))
-LengthDescription(A, ind::Int) = LengthDescription(param_type_length(A), ind % Int32, zero(Int8))
+LengthDescription(A, ind) = LengthDescription(param_type_length(A)::Int, ind % Int32)
 
 # LengthParamDescription(spd::SizedParamDescription{0}) = LengthParamDescription(1, spd.d)#, one(Int8))
 # function LengthParamDescription(spd::SizedParamDescription)
@@ -121,14 +121,14 @@ LengthDescription(A, ind::Int) = LengthDescription(param_type_length(A), ind % I
 #     l = minimum(s) < 0 ? -1 : prod(s)
 #     LengthParamDescription(l, spd.d)
 # end
-function update_rem!(descript::AbstractVector{LengthParamDescription}, R)
-    Rm1 = R - 1
-    for j ∈ 1:length(descript)
-        d = descript[j]
-        d = LengthParamDescription(d.l, d.ind, (d.l & Rm1) % Int8)
-        descript[j] = d
-    end
-end
+# function update_rem!(descript::AbstractVector{LengthParamDescription}, R)
+#     Rm1 = R - 1
+#     for j ∈ 1:length(descript)
+#         d = descript[j]
+#         d = LengthParamDescription(d.l, d.ind, (d.l & Rm1) % Int8)
+#         descript[j] = d
+#     end
+# end
 
 function Base.isless(lpd1::LengthParamDescription, lpd2::LengthParamDescription)
     l1 = lpd1.l; l2 = lpd2.l
@@ -202,21 +202,28 @@ function combine_param_tripples!(descript::AbstractVector{LengthParamDescription
     end
     start
 end
-function sort_by_rem!(descript::Vector{LengthParamDescription}, R = 8)#VectorizationBase.REGISTER_SIZE >>> 3)
+function sort_by_rem!(descript::Vector{LengthParamDescription}, R = VectorizationBase.REGISTER_SIZE >>> 3)
     i = 1
     N = length(descript)
-    descriptv = @view(descript[1:end])    
-    while R > 1
-        descriptv = @view(descriptv[i:end])
-        update_rem!(descriptv, R)
-        sort!(descriptv)
-        i = findfirst(d -> !iszero(d.r), descriptv)
-        i === nothing && return
-        i = combine_param_pairs!(descriptv, R, i)
-        i = combine_param_tripples!(descriptv, R, i)
-        N < i || return
-        R >>>= 1
-    end
+    # Original version looped while reducing R
+    # We only do this once, because that risks misaligning larger objects.
+    # E.g., align to 8 doubles, if we have [(l = 10007, id=1, r = 8), (l = 4, id=2, r = 4)]
+    # The algorithm would now choose (id=1,id=2) order, but with the loop it would favor (id=2,id=1)
+    # 
+    # descriptv = @view(descript[1:end])    
+    # while R > 1
+    # descriptv = @view(descriptv[i:end])
+    descriptv = descript
+    # update_rem!(descriptv, R)
+    sort!(descriptv)
+    i = findfirst(d -> !iszero(d.r), descriptv)
+    i === nothing && return
+    i = combine_param_pairs!(descriptv, R, i)
+    i = combine_param_tripples!(descriptv, R, i)
+    nothing
+        # N < i || return
+        # R >>>= 1
+    # end
 end
 
 function parameter_offsets(descript::Vector{LengthParamDescription})
