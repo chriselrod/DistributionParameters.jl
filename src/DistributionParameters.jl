@@ -7,7 +7,8 @@ using PaddedMatrices, LinearAlgebra,
 using PaddedMatrices: StackPointer,#, DynamicPtrMatrix,
     AbstractFixedSizeVector,
     AbstractFixedSizeMatrix,
-    AbstractFixedSizeArray
+    AbstractFixedSizeArray,
+    flatvector
 
 # using ReverseDiffExpressionsBase: adj
 import ReverseDiffExpressionsBase: constrain!
