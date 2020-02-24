@@ -10,7 +10,7 @@ struct RealScalar{L,U}
 end
 struct RealArray{S<:Tuple,L,U,D}
     dynamicsizes::NTuple{D,Int}
-    RealArray{S,L,U,D}(d::NTuple{D,Int}) where {S,L,U,D} = new{S,Float64(L),Float64(U),D}(d)
+    RealArray{S,L,U,D}(d::NTuple{D,Int}) where {S,L,U,D} = ((@assert U > L); new{S,Float64(L),Float64(U),D}(d))
 end
 const RealVector{N,L,U,D} = RealArray{Tuple{N},L,U,D}
 const RealMatrix{M,N,L,U,D} = RealArray{Tuple{M,N},L,U,D}

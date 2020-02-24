@@ -8,7 +8,7 @@ using PaddedMatrices: StackPointer,#, DynamicPtrMatrix,
     AbstractFixedSizeVector,
     AbstractFixedSizeMatrix,
     AbstractFixedSizeArray,
-    flatvector
+    flatvector, NoPadPtrView, AbstractStrideArray
 
 # using ReverseDiffExpressionsBase: adj
 import ReverseDiffExpressionsBase: constrain!
