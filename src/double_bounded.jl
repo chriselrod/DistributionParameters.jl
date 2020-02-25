@@ -3,13 +3,14 @@
 struct InvLogitElement{T<:Real} <: Real
     data::T
     logp::T
-    logitp::T
+    nlogitp::T
 end
 struct InvLogitVec{W,T<:Real} <: AbstractStructVec{W,T}
     data::Vec{W,T}
     logp::Vec{W,T}
-    logitp::Vec{W,T}
+    nlogitp::Vec{W,T}
 end
+const InvLogitValue{T} = Union{InvLogitElement{T},InvLogitVec{<:Any,T}}
 @inline invlogitwrap(p::T, logp::T, invlogit::T) where {T<:Number} = InvLogitElement(p, logp, invlogit)
 @inline invlogitwrap(p::Vec{W,T}, logp::Vec{W,T}, invlogit::Vec{W,T}) where {T<:Number} = InvLogitVec(p, logp, invlogit)
 @inline function invlogitwrap(p::AbstractStructVec{W,T}, logp::AbstractStructVec{W,T}, invlogit::AbstractStructVec{W,T}) where {T<:Number}
@@ -20,6 +21,10 @@ struct InvLogitStridedPointer{L,T,P<:AbstractStridedPointer{T}} <: AbstractStrid
     logitptr::Ptr{T}
     @inline InvLogitStridedPointer{L}(ptr::P, logitptr::Ptr{T}) where {L,T,P<:AbstractStridedPointer} = InvLogitStridedPointer{L,T,P}(ptr, logitptr)
 end
+@inline Base.convert(::Type{T1}, a::InvLogitElement{T2}) where {T1,T2} = convert(T1, a.data)
+@inline Base.promote_type(::Type{InvLogitElement{T1}}, ::Type{T2}) where {T1,T2} = promote_type(T1, T2)
+@inline Base.promote_type(::Type{T2}, ::Type{InvLogitElement{T1}}) where {T1,T2} = promote_type(T1, T2)
+@inline Base.promote_type(::Type{InvLogitElement{T1}}, ::Type{InvLogitElement{T2}) where {T1,T2} = promote_type(T1, T2)
 @inline Base.pointer(A::InvLogitStridedPointer) = A.ptr.ptr
 @inline VectorizationBase.offset(p::InvLogitStridedPointer, i::Tuple) = offset(p.ptr, i)
 @inline function VectorizationBase.load(ilp::InvLogitStridedPointer{L,T}, i) where {L,T}
@@ -29,6 +34,11 @@ end
     logitp = load(ilp.logitptr, o)
     invlogitwrap(p, logp, logitp)
 end
+@inline Base.log(il::InvLogitValue) = il.logp
+@inline SLEEFPirates.logm1(il::InvLogitValue) = vadd(il.logp, il.nlogitp)
+@inline SLEEFPirates.logit(il::InvLogitValue) = vsub(il.nlogitp)
+@inline SLEEFPirates.nlogit(il::InvLogitValue) = il.nlogitp
+
 
 struct InvLogitArray{S,T,N,X,SN,XN,L} <: AbstractStrideArray{S,T,N,X,SN,XN,true,L}
     ptr::Ptr{T}
