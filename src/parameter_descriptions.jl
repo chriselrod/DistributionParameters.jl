@@ -31,16 +31,16 @@ RealArray{L,U}(ds::NTuple{1,Int}) where {L,U} = RealArray{Tuple{-1},Float64(L),F
 RealArray{L,U}(ds::NTuple{2,Int}) where {L,U} = RealArray{Tuple{-1,-1},Float64(L),Float64(U),2}(ds)
 
 using PaddedMatrices
-import PaddedMatrices: param_type_length
-param_type_length(::RealScalar) = 1
-param_type_length(::RealVector{M}) where {M} = M
-param_type_length(::RealMatrix{M,N}) where {M,N} = M*N
-@generated PaddedMatrices.param_type_length(::RealArray{S}) where {S} = PaddedMatrices.simple_vec_prod(S.parameters)
+import PaddedMatrices: memory_length
+memory_length(::RealScalar) = 1
+memory_length(::RealVector{M}) where {M} = M
+memory_length(::RealMatrix{M,N}) where {M,N} = M*N
+@generated PaddedMatrices.memory_length(::RealArray{S}) where {S} = PaddedMatrices.simple_vec_prod(S.parameters)
 
 
 
 abstract type AbstractMissingDataArray{M,L,U,T,N,A <: AbstractArray{T,N}} end
-param_type_length(::AbstractMissingDataArray{M}) where {M} = M
+memory_length(::AbstractMissingDataArray{M}) where {M} = M
 """
 Parameters are:
 M: number Missing
@@ -63,13 +63,11 @@ end
     RealArrayParameter
     LKJCorrCholeskyParameter
     SimplexParameter
-end
+endn
 
 
 """
-The basic plan is to use Bounds{L,U} for dispatch.
-Generated functions will switch to BoundsValues internally, so that the code
-generated the function bodies will not have to recompile.
+The basic plan is to use Val{Bounds}() for dispatch.
 """
 struct Bounds
     lb::Float64
@@ -83,16 +81,16 @@ Base.min(b::Bounds) = b.lb
 Base.max(b::Bounds) = b.ub
 ismin(x::T) where {T} = ((x == typemin(T)) | (x == -floatmax(T))) # floatmin
 ismax(x::T) where {T} = ((x == typemax(T)) | (x ==  floatmax(T)))
-function isunbounded(b::BoundsValue)
+function isunbounded(b::Bounds)
     ismin(b.lb) & ismax(b.ub)
 end
-function islowerbounded(b::BoundsValue)
+function islowerbounded(b::Bounds)
     (!ismin(b.lb)) & ismax(b.ub)
 end
-function isupperbounded(b::BoundsValue)
+function isupperbounded(b::Bounds)
     ismin(b.lb) & (!ismax(b.ub))
 end
-function isbounded(b::BoundsValue)
+function isbounded(b::Bounds)
     (!ismin(b.lb)) & (!ismax(b.ub))
 end
 
@@ -113,7 +111,8 @@ struct LengthParamDescription
     r::Int8
     LengthParamDescription(l::Int, d) = new(l, d % Int32, (l & (VectorizationBase.REGISTER_SIZE>>>3) ) % Int8)
 end
-LengthDescription(A, ind) = LengthDescription(param_type_length(A)::Int, ind % Int32)
+# LengthDescription(::Type{A}, ind) where {A} = LengthDescription(memory_length(A)::Int, ind % Int32)
+LengthParamDescription(A, ind) = LengthParamDescription(memory_length(A)::Int, ind % Int32)
 
 # LengthParamDescription(spd::SizedParamDescription{0}) = LengthParamDescription(1, spd.d)#, one(Int8))
 # function LengthParamDescription(spd::SizedParamDescription)
