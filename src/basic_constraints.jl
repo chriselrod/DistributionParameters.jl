@@ -26,45 +26,50 @@
 #     constrain(θ, index_description(Val{descript}(), Val{I}()))
 # end
 
-@inline constrain(θ::Ptr{Float64}, i, ::RealScalar{-Inf,Inf}) = (Zero(), vload(gep(θ, i)))
-@inline constrain(θ::Ptr{Float64}, i, ::RealScalar{0.0,Inf}) = (x = vload(gep(θ, i)); (x, exp(x)))
-@inline constrain(θ::Ptr{Float64}, i, ::RealScalar{Inf,0.0}) = (x = vload(gep(θ, i)); (x, Base.FastMath.sub_fast(exp(x))))
-@inline constrain(θ::Ptr{Float64}, i, ::RealScalar{L,Inf}) where {L} = (x = vload(gep(θ, i)); (x, Base.FastMath.add_fast(L, exp(x))))
-@inline constrain(θ::Ptr{Float64}, i, ::RealScalar{Inf,U}) where {U} = (x = vload(gep(θ, i)); (x, Base.FastMath.sub_fast(U, exp(x))))
-# @inline constrain(θ::Ptr{Float64}, ::RealScalar{L,U}) where {L,U} = (x = ninvlogit(vload(gep(θ, i))); (muladd(Base.FastMath.sub_fast(x),x,x), x))
-@inline constrain_pullback(θ::Ptr{Float64}, i, ::RealScalar{-Inf,Inf}) = (Zero(), vload(gep(θ, i)), ReverseDiffExpressionBase.One())
-@inline function constrain_pullback(θ::Ptr{Float64}, i, ::RealScalar{0.0,Inf})
-    y = vload(gep(θ, i))
+@inline constrain(θ::Ptr{Float64}, i, T) = constrain(gep(θ, i), T)
+@inline constrain_pullback!(∇::Ptr{Float64}, θ::Ptr{Float64}, i, T) = constrain_pullback!(gep(∇, i), gep(θ, i), T)
+@inline stack_pointer_call(::typeof(constrain), sp::StackPointer, θ::Ptr{Float64}, i, T) = stack_pointer_call(constrain, sp, gep(θ, i), T)
+@inline stack_pointer_call(::typeof(constrain_pullback!), sp::StackPointer, ∇::Ptr{Float64}, θ::Ptr{Float64}, i, T) = stack_pointer_call(constrain_pullback!, sp, gep(∇, i), gep(θ, i), T)
+
+initialized_adjoint(::Any) = false
+
+@inline constrain(θ::Ptr{Float64}, ::RealScalar{-Inf,Inf}) = (Zero(), vload(θ))
+@inline constrain(θ::Ptr{Float64}, ::RealScalar{0.0,Inf}) = (x = vload(θ); (x, exp(x)))
+@inline constrain(θ::Ptr{Float64}, ::RealScalar{Inf,0.0}) = (x = vload(θ); (x, Base.FastMath.sub_fast(exp(x))))
+@inline constrain(θ::Ptr{Float64}, ::RealScalar{L,Inf}) where {L} = (x = vload(θ); (x, Base.FastMath.add_fast(L, exp(x))))
+@inline constrain(θ::Ptr{Float64}, ::RealScalar{Inf,U}) where {U} = (x = vload(θ); (x, Base.FastMath.sub_fast(U, exp(x))))
+@inline constrain_pullback!(∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealScalar{-Inf,Inf}) = ((Zero(), vload(θ)), (Reference(∇, Zero()), One()))
+@inline function constrain_pullback!(∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealScalar{0.0,Inf})
+    y = vload(θ)
     x = exp(y)
-    (y, x, x)
+    ((y, x), (Reference(∇, Zero()), x))
 end
-@inline function constrain_pullback(θ::Ptr{Float64}, i, ::RealScalar{-Inf,0.0})
-    y = vload(gep(θ, i))
+@inline function constrain_pullback!(∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealScalar{-Inf,0.0})
+    y = vload(θ)
     x = Base.FastMath.sub_fast(exp(y))
-    (y, x, x)
+    ((y, x), (Reference(∇, Zero()), x))
 end
-@inline function constrain_pullback(θ::Ptr{Float64}, i, ::RealScalar{L,Inf}) where {L}
-    y = vload(gep(θ, i))
+@inline function constrain_pullback!(∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealScalar{L,Inf}) where {L}
+    y = vload(θ)
     x = exp(y)
-    (y, Base.FastMath.add_fast(L, x), x)
+    ((y, Base.FastMath.add_fast(L, x)), (Reference(∇, Zero()), x))
 end
-@inline function constrain_pullback(θ::Ptr{Float64}, i, ::RealScalar{-Inf,U}) where {U}
-    y = vload(gep(θ, i))
+@inline function constrain_pullback!(∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealScalar{-Inf,U}) where {U}
+    y = vload(θ)
     x = Base.FastMath.sub_fast(exp(y))
-    (y, Base.FastMath.add_fast(U, x), x)
+    ((y, Base.FastMath.add_fast(U, x)), (Reference(∇, Zero()), x))
 end
-# constrain_pullback(θ::Ptr{Float64}, ::RealScalar{0.0,1.0}) = (x = ninvlogit(vload(gep(θ, i))); (x, Base.FastMath.mul_fast(x, Base.FastMath.sub_fast(x, 1.0))))
-@inline alloc_adj(::Any, ::Any, ::RealScalar) = Zero()
 constrain_reverse!(∇::Ptr{T}, adj::T, ∂::One, ::RealScalar) where {T} = store!(∇, adj)
 constrain_reverse!(∇::Ptr, adj, ∂::One, ::RealScalar) = store!(∇, vsum(adj))
 constrain_reverse!(∇::Ptr{T}, adj::T, ∂, ::RealScalar) where {T} = store!(∇, vmul(adj, ∂))
 constrain_reverse!(∇::Ptr, adj, ∂, ::RealScalar) = store!(∇, vsum(vmul(adj, ∂)))
 
-@inline alloc_adj(∇::Ptr{Float64}, ::RealArray{S,<:Any,<:Any,0}) where {S} = NoPadPtrView{S}(∇)
 @inline constrain(θ::Ptr{Float64}, ::RealArray{S,-Inf,Inf,0}) where {S} = Zero(), NoPadPtrView{S}(θ)
-@inline constrain_pullback(θ::Ptr{Float64}, ::RealArray{S,-Inf,Inf,0}) where {S} = (Zero(), NoPadPtrView{S}(θ), One())
-@inline stack_pointer_call(::typeof(constrain), sp::StackPointer, θ::Ptr{Float64}, ::RealArray{S,-Inf,Inf,0}) where {S} = (sp, Zero(), NoPadPtrView{S}(θ))
-@inline stack_pointer_call(::typeof(constrain_pullback), sp::StackPointer, θ::Ptr{Float64}, ::RealArray{S,-Inf,Inf,0}) where {S} = (sp, Zero(), NoPadPtrView{S}(θ), One())
+@inline constrain_pullback!(∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealArray{S,-Inf,Inf,0}) where {S} = ((Zero(), NoPadPtrView{S}(θ)), (NoPadPtrView{S}(∇), One()))
+@inline stack_pointer_call(::typeof(constrain), sp::StackPointer, θ::Ptr{Float64}, ::RealArray{S,-Inf,Inf,0}) where {S} = (sp, (Zero(), NoPadPtrView{S}(θ)))
+@inline function stack_pointer_call(::typeof(constrain_pullback!), sp::StackPointer, ∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealArray{S,-Inf,Inf,0}) where {S}
+    (sp, ((Zero(), NoPadPtrView{S}(θ)), (NoPadPtrView{S}(∇), One())))
+end
 # @inline alloc_adj(∇::Ptr{Float64}, ::RealArray{S,-Inf,Inf,0}) where {S} = NoPadPtrView{S}(∇)
 @inline constrain_reverse!(adj::PtrArray{S}, ∂::One, ::RealArray{S,-Inf,Inf}) where {S} = nothing
 
@@ -115,11 +120,11 @@ end
     t = constrain_bounded_array!(flatvector(e), uv, RealArray{S,L,U,0}())
     sp, (t, MappedArray(e, pointer(uv)))    
 end
-@inline function constrain_pullback_single_bound_spc(sp::StackPointer, θ::Ptr{Float64}, ::RealArray{S,L,U,0}) where {L,U,S}
+@inline function constrain_pullback_single_bound_spc(sp::StackPointer, ∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealArray{S,L,U,0}) where {L,U,S}
     sp, e = NoPadPtrView{S}(sp)
     uv = flatvector(NoPadPtrView{S}(θ))
     t = constrain_bounded_array!(flatvector(e), uv, RealArray{S,L,U,0}())
-    sp, (t, MappedArray(e, pointer(uv)), e)
+    sp, ((t, MappedArray(e, pointer(uv))), (NoPadPtrView{S}(∇),e))
 end
 @inline function stack_pointer_call(::typeof(constrain), sp::StackPointer, θ::Ptr{Float64}, ::RealArray{S,L,Inf,0}) where {L,S}
     constrain_single_bound_spc(sp, θ, RealArray{S,L,Inf,0}())
@@ -127,11 +132,11 @@ end
 @inline function stack_pointer_call(::typeof(constrain), sp::StackPointer, θ::Ptr{Float64}, ::RealArray{S,-Inf,U,0}) where {U,S}
     constrain_single_bound_spc(sp, θ, RealArray{S,-Inf,U,0}())
 end
-@inline function stack_pointer_call(::typeof(constrain_pullback), sp::StackPointer, θ::Ptr{Float64}, ::RealArray{S,L,Inf,0}) where {L,S}
-    constrain_pullback_single_bound_spc(sp, θ, RealArray{S,L,Inf,0}())
+@inline function stack_pointer_call(::typeof(constrain_pullback!), sp::StackPointer, ∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealArray{S,L,Inf,0}) where {L,S}
+    constrain_pullback_single_bound_spc(sp, ∇, θ, RealArray{S,L,Inf,0}())
 end
-@inline function stack_pointer_call(::typeof(constrain_pullback), sp::StackPointer, θ::Ptr{Float64}, ::RealArray{S,-Inf,U,0}) where {U,S}
-    constrain_pullback_single_bound_spc(sp, θ, RealArray{S,-Inf,U,0}())
+@inline function stack_pointer_call(::typeof(constrain_pullback!), sp::StackPointer, ∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealArray{S,-Inf,U,0}) where {U,S}
+    constrain_pullback_single_bound_spc(sp, ∇, θ, RealArray{S,-Inf,U,0}())
 end
 
 # @inline alloc_adj(∇::Ptr{Float64}, ::RealArray{S,-Inf,Inf,0}) where {S} = NoPadPtrView{S}(∇)

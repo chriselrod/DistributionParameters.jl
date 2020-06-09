@@ -5,10 +5,10 @@
 # Base.min(::Bounds{L}) where {L} = L
 # Base.max(::Bounds{L,U}) where {L,U} = U
 
-struct RealScalar{L,U}
+struct RealScalar{L,U} <: AbstractParameter
     RealScalar{L,U}() where {L,U} = new{Float64(L),Float64(U)}()
 end
-struct RealArray{S<:Tuple,L,U,D}
+struct RealArray{S<:Tuple,L,U,D} <: AbstractParameter
     dynamicsizes::NTuple{D,Int}
     RealArray{S,L,U,D}(d::NTuple{D,Int}) where {S,L,U,D} = ((@assert U > L); new{S,Float64(L),Float64(U),D}(d))
 end
@@ -35,11 +35,15 @@ import PaddedMatrices: memory_length
 memory_length(::RealScalar) = 1
 memory_length(::RealVector{M}) where {M} = M
 memory_length(::RealMatrix{M,N}) where {M,N} = M*N
+memory_length(::Type{<:RealScalar}) = 1
+memory_length(::Type{<:RealVector{M}}) where {M} = M
+memory_length(::Type{<:RealMatrix{M,N}}) where {M,N} = M*N
 @generated PaddedMatrices.memory_length(::RealArray{S}) where {S} = PaddedMatrices.simple_vec_prod(S.parameters)
+@generated PaddedMatrices.memory_length(::Type{<:RealArray{S}}) where {S} = PaddedMatrices.simple_vec_prod(S.parameters)
 
 
 
-abstract type AbstractMissingDataArray{M,L,U,T,N,A <: AbstractArray{T,N}} end
+abstract type AbstractMissingDataArray{M,L,U,T,N,A <: AbstractArray{T,N}} <: AbstractParameter end
 memory_length(::AbstractMissingDataArray{M}) where {M} = M
 """
 Parameters are:
@@ -63,7 +67,7 @@ end
     RealArrayParameter
     LKJCorrCholeskyParameter
     SimplexParameter
-endn
+end
 
 
 """
@@ -109,7 +113,7 @@ struct LengthParamDescription
     l::Int
     ind::Int32
     r::Int8
-    LengthParamDescription(l::Int, d) = new(l, d % Int32, (l & (VectorizationBase.REGISTER_SIZE>>>3) ) % Int8)
+    LengthParamDescription(l::Int, d) = new(l, d % Int32, (l & ((VectorizationBase.REGISTER_SIZE>>>3)-1) ) % Int8)
 end
 # LengthDescription(::Type{A}, ind) where {A} = LengthDescription(memory_length(A)::Int, ind % Int32)
 LengthParamDescription(A, ind) = LengthParamDescription(memory_length(A)::Int, ind % Int32)
@@ -231,7 +235,7 @@ function parameter_offsets(descript::Vector{LengthParamDescription})
     offset = 0
     for d ∈ descript
         # @show d.d.ind, d.l, offset
-        offsets[d.d.ind] = offset
+        offsets[d.ind] = offset
         offset += d.l
     end
     offsets

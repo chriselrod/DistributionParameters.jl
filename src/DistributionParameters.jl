@@ -17,8 +17,10 @@ import ReverseDiffExpressionsBase: constrain
 import StackPointers: stack_pointer_call
 
 export RealFloat, RealArray, RealVector, RealMatrix, Bounds, MissingDataArray, maybe_missing,
-    constrain, CorrCholesky, CovarCholesky, DynamicCovarianceMatrix
+    constrain, CorrelationMatrixCholesyFactor, AbstractParameter
+#, CorrCholesky, CovarCholesky, DynamicCovarianceMatrix
 
+abstract type AbstractParameter end
 
 #using LoopVectorization: @vvectorize
 
@@ -42,9 +44,12 @@ export RealFloat, RealArray, RealVector, RealMatrix, Bounds, MissingDataArray, m
 function constrained_length end
 function parameter_names end
 
+include("reference.jl")
 include("parameter_descriptions.jl")
 include("basic_constraints.jl")
 include("double_bounded.jl")
+include("corr_cholesky.jl")
+
 
 # include("constraints.jl")
 # include("uniform_mapped_parameters.jl")

@@ -64,13 +64,13 @@ end
     t = Base.FastMath.add_fast(Base.FastMath.mul_fast(2, logp), y)
     t, InvLogitElement(p, logp, y)
 end
-@inline function constrain_pullback(θ::Ptr{Float64}, ::RealScalar{0.0,1.0})
+@inline function constrain_pullback(∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealScalar{0.0,1.0})
     y = vload(θ)
     p = ninvlogit(y)
     logp = log(p)
     t = Base.FastMath.add_fast(Base.FastMath.mul_fast(2, logp), y)
     ile = InvLogitElement(p, logp, y)
-    t, ile, ile
+    (t, ile), (Zero(), ile)
 end
 @inline function constrain_double_bounded_array!(c::AbstractStrideMatrix{N,2}, nil::AbstractVector, ::RealArray{S,0.0,1.0,0}) where {N,S}
     t = vzero()
@@ -91,12 +91,12 @@ end
     ila = InvLogitArray{S}(pointer(e), pointer(θ))
     sp, (t, ila)
 end
-@inline function stack_pointer_call(::typeof(constrain_pullback), sp::StackPointer, θ::Ptr{Float64}, ::RealArray{S,0.0,1.0,0}) where {S}
+@inline function stack_pointer_call(::typeof(constrain_pullback!), sp::StackPointer, ∇::Ptr{Float64}, θ::Ptr{Float64}, ::RealArray{S,0.0,1.0,0}) where {S}
     sp, e = NoPadFlatPtrViewMulti(sp, S, Val{2}())
     uv = flatvector(NoPadPtrView{S}(θ))
     t = constrain_double_bounded_array!(flatvector(e), uv, RealArray{S,L,U,0}())
     ila = InvLogitArray{S}(pointer(e), pointer(θ))
-    sp, (t, ila, ila)
+    sp, ((t, ila), (NoPadPtrView{S}(∇), ila))
 end
 
 
